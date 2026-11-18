@@ -227,6 +227,14 @@ class _FsSettingsScreenState extends ConsumerState<FsSettingsScreen> {
             subtitle: 'Health Connect sync status',
             onTap: () => context.push(AppRoutes.devices),
           ),
+          const SizedBox(height: 10),
+          _SettingsTile(
+            color: AppColors.mintCard,
+            icon: Icons.medical_services_outlined,
+            title: 'My reviews',
+            subtitle: 'Doctor replies to your review requests',
+            onTap: () => context.push(AppRoutes.doctors),
+          ),
           const SizedBox(height: 20),
 
           Text('Sync & storage', style: AppText.cardTitle),

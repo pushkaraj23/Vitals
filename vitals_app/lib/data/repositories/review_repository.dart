@@ -12,14 +12,32 @@ class ReviewModel {
   });
 
   final String flagId;
-  final String verdict; // 'Confirmed'|'Not concerning'|'Needs consultation'
+  final String verdict; // 'Confirmed'|'Not concerning'|'Needs consultation'|''
   final String note;
   final String reviewerName;
   final String reviewedAt; // yyyy-MM-dd
   final bool simulated;
-  final String? status; // 'pending'
+  /// pending | in_review | reviewed
+  final String? status;
 
-  bool get isPending => status == 'pending';
+  bool get isPending => status == 'pending' || status == 'in_review';
+
+  bool get isInReview => status == 'in_review';
+
+  bool get isReviewed =>
+      status == 'reviewed' ||
+      (!isPending &&
+          verdict.isNotEmpty &&
+          reviewerName.isNotEmpty &&
+          reviewerName != 'Pending' &&
+          reviewerName != 'Pending clinician assignment');
+
+  String get statusLabel {
+    if (isInReview) return 'In review';
+    if (isPending) return 'Awaiting doctor';
+    if (isReviewed) return 'Reviewed';
+    return 'Requested';
+  }
 
   factory ReviewModel.fromMap(String flagId, Map<String, dynamic> m) {
     final reviewedAt = m['reviewedAt'];
@@ -60,10 +78,16 @@ class ReviewRepository {
       _db.collection('users').doc(uid).collection('reviews');
 
   Stream<List<ReviewModel>> watchAll(String uid) {
-    return _col(uid).snapshots().map(
-          (s) =>
-              s.docs.map((d) => ReviewModel.fromMap(d.id, d.data())).toList(),
-        );
+    return _col(uid).snapshots().map((s) {
+      final reviews =
+          s.docs.map((d) => ReviewModel.fromMap(d.id, d.data())).toList();
+      reviews.sort((a, b) {
+        final rank = _statusRank(a) - _statusRank(b);
+        if (rank != 0) return rank;
+        return b.reviewedAt.compareTo(a.reviewedAt);
+      });
+      return reviews;
+    });
   }
 
   Future<List<ReviewModel>> getAll(String uid) async {
@@ -88,18 +112,101 @@ class ReviewRepository {
     await _col(uid).doc(review.flagId).set(review.toMap());
   }
 
-  Future<void> requestReview(String uid, String flagId) async {
+  /// Creates the portal enquiry first, then mirrors a pending review for the app.
+  /// Enquiry-first avoids "requested" UI when the doctor queue write fails.
+  Future<void> requestReview(
+    String uid,
+    String flagId, {
+    String patientName = 'Patient',
+    String? patientEmail,
+    String flagTitle = 'Pattern flag',
+    String flagLevel = '',
+    String metric = '',
+    String message = '',
+  }) async {
     final now = DateTime.now();
     final dateStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final note = message.trim().isEmpty
+        ? 'Patient requested a doctor review of this pattern.'
+        : message.trim();
+
+    final enquiryRef = _db.collection('enquiries').doc('${uid}_$flagId');
+    final enquiryPayload = <String, dynamic>{
+      'patientId': uid,
+      'patientName': patientName,
+      if (patientEmail != null && patientEmail.isNotEmpty)
+        'patientEmail': patientEmail,
+      'flagId': flagId,
+      'flagTitle': flagTitle,
+      'flagLevel': flagLevel,
+      'metric': metric,
+      'message': note,
+      'status': 'open',
+      'verdict': null,
+      'doctorNote': '',
+      'doctorId': null,
+      'doctorName': null,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    // Prefer create/merge without requiring a privileged pre-read.
+    // If the doc already exists as open/in_review, keep status and refresh details.
+    try {
+      final existing = await enquiryRef.get();
+      if (existing.exists) {
+        final currentStatus = existing.data()?['status'] as String?;
+        if (currentStatus == 'open' || currentStatus == 'in_review') {
+          await enquiryRef.set({
+            'message': note,
+            'patientName': patientName,
+            if (patientEmail != null && patientEmail.isNotEmpty)
+              'patientEmail': patientEmail,
+            'flagTitle': flagTitle,
+            'flagLevel': flagLevel,
+            'metric': metric,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } else {
+          await enquiryRef.set({
+            ...enquiryPayload,
+            'createdAt':
+                existing.data()?['createdAt'] ?? FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      } else {
+        await enquiryRef.set({
+          ...enquiryPayload,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } on FirebaseException catch (e) {
+      // Missing-doc get can fail under older rules; fall back to create.
+      if (e.code == 'permission-denied') {
+        await enquiryRef.set({
+          ...enquiryPayload,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        rethrow;
+      }
+    }
+
     await _col(uid).doc(flagId).set({
-      'verdict': 'Needs consultation',
-      'note':
-          'Review request submitted. Doctor review is not available yet in this prototype.',
-      'reviewerName': 'Pending clinician assignment',
+      'verdict': '',
+      'note': note,
+      'reviewerName': 'Pending',
       'reviewedAt': dateStr,
       'simulated': false,
       'status': 'pending',
+      'requestedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+  }
+
+  static int _statusRank(ReviewModel review) {
+    if (review.isInReview) return 0;
+    if (review.isPending) return 1;
+    return 2;
   }
 }

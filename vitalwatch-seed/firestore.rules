@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function doctorDoc() {
+      return get(/databases/$(database)/documents/doctors/$(request.auth.uid));
+    }
+
+    function isDoctor() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/doctors/$(request.auth.uid))
+        && doctorDoc().data.active != false;
+    }
+
+    // Doctor portal profiles. Seeded via Admin SDK.
+    match /doctors/{doctorId} {
+      allow read: if isSelf(doctorId) || isDoctor();
+      allow write: if false;
+    }
+
+    // Patient review requests for the doctor portal.
+    match /enquiries/{enquiryId} {
+      allow create: if signedIn()
+        && request.resource.data.patientId == request.auth.uid
+        && request.resource.data.flagId is string
+        && request.resource.data.status == 'open';
+
+      // resource == null covers get() on a missing doc before create.
+      allow get: if isDoctor()
+        || (signedIn()
+            && (resource == null
+                || resource.data.patientId == request.auth.uid));
+      allow list: if isDoctor()
+        || (signedIn() && resource.data.patientId == request.auth.uid);
+
+      // Doctors manage queue status; patients may refresh/re-open their request.
+      allow update: if isDoctor()
+        || (signedIn()
+            && resource.data.patientId == request.auth.uid
+            && request.resource.data.patientId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isSelf(userId);
+      allow read: if isDoctor();
+
+      match /daily/{docId} {
+        allow read, write: if isSelf(userId);
+        allow read: if isDoctor();
+      }
+      match /baselines/{docId} {
+        allow read, write: if isSelf(userId);
+        allow read: if isDoctor();
+      }
+      match /flags/{docId} {
+        allow read, write: if isSelf(userId);
+        allow read: if isDoctor();
+      }
+      match /symptoms/{docId} {
+        allow read, write: if isSelf(userId);
+        allow read: if isDoctor();
+      }
+      match /habits/{docId} {
+        allow read, write: if isSelf(userId);
+        allow read: if isDoctor();
+      }
+      match /reviews/{docId} {
+        allow read, write: if isSelf(userId);
+        allow read, write: if isDoctor();
+      }
+    }
+
+    match /rules/{ruleId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /habitTemplates/{templateId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+  }
+}

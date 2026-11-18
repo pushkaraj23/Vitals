@@ -1,9 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/utils/chart_scale.dart';
@@ -12,6 +15,7 @@ import '../../core/widgets/ink_app_bar.dart';
 import '../../core/widgets/widgets.dart';
 import '../../data/repositories/daily_repository.dart';
 import '../../data/repositories/flag_repository.dart';
+import '../../data/repositories/review_repository.dart';
 import '../../data/repositories/symptom_repository.dart';
 import '../../domain/models/enums.dart';
 import '../../providers/auth_provider.dart';
@@ -313,62 +317,7 @@ class _FlagDetailBody extends ConsumerWidget {
           child: reviewAsync.when(
             loading: () => const LinearProgressIndicator(),
             error: (_, _) => const Text('Could not load review status.'),
-            data: (review) {
-              if (review == null) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Not yet reviewed', style: AppText.body),
-                    const SizedBox(height: 12),
-                    OutlinedButton(
-                      onPressed: () async {
-                        final uid = ref.read(currentUidProvider);
-                        if (uid == null) return;
-                        await ref
-                            .read(reviewRepositoryProvider)
-                            .requestReview(uid, flag.id);
-                        if (context.mounted) {
-                          showSnack(
-                            context,
-                            'Doctor review is not available yet in this prototype.',
-                          );
-                        }
-                      },
-                      child: const Text('Request review'),
-                    ),
-                  ],
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (review.simulated)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: SimulatedReviewLabel(),
-                    ),
-                  if (!review.isPending)
-                    DoctorBadge(
-                      state: review.verdict == 'Confirmed'
-                          ? DoctorBadgeState.verified
-                          : review.verdict == 'Needs consultation'
-                              ? DoctorBadgeState.needsConsultation
-                              : DoctorBadgeState.verified,
-                    ),
-                  if (review.isPending)
-                    const DoctorBadge(state: DoctorBadgeState.underReview),
-                  const SizedBox(height: 8),
-                  Text(review.verdict, style: AppText.cardTitle),
-                  const SizedBox(height: 4),
-                  Text(review.note, style: AppText.bodyMuted),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${review.reviewerName} · ${review.reviewedAt}',
-                    style: AppText.caption,
-                  ),
-                ],
-              );
-            },
+            data: (review) => _DoctorReviewCard(flag: flag, review: review),
           ),
         ),
         const SizedBox(height: 24),
@@ -654,6 +603,188 @@ class _MetricTrendChart extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DoctorReviewCard extends ConsumerStatefulWidget {
+  const _DoctorReviewCard({required this.flag, required this.review});
+
+  final FlagModel flag;
+  final ReviewModel? review;
+
+  @override
+  ConsumerState<_DoctorReviewCard> createState() => _DoctorReviewCardState();
+}
+
+class _DoctorReviewCardState extends ConsumerState<_DoctorReviewCard> {
+  bool _sending = false;
+
+  DoctorBadgeState _badgeFor(ReviewModel review) {
+    if (review.isPending) return DoctorBadgeState.underReview;
+    if (review.verdict == 'Needs consultation') {
+      return DoctorBadgeState.needsConsultation;
+    }
+    if (review.verdict == 'Not concerning' || review.verdict == 'Confirmed') {
+      return DoctorBadgeState.verified;
+    }
+    return DoctorBadgeState.notReviewed;
+  }
+
+  Future<void> _requestReview() async {
+    final uid = ref.read(currentUidProvider);
+    if (uid == null) return;
+
+    final messageCtrl = TextEditingController(
+      text: widget.flag.explanation,
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text('Request doctor review', style: AppText.cardTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This sends the pattern to the doctor portal. You can add a short note for the clinician.',
+              style: AppText.bodyMuted,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: messageCtrl,
+              maxLines: 4,
+              decoration: InputDecoration(
+                hintText: 'What should the doctor know?',
+                filled: true,
+                fillColor: AppColors.canvas,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Send request'),
+          ),
+        ],
+      ),
+    );
+
+    final message = messageCtrl.text;
+    messageCtrl.dispose();
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _sending = true);
+    final user = ref.read(userProvider).value;
+    try {
+      await ref.read(reviewRepositoryProvider).requestReview(
+            uid,
+            widget.flag.id,
+            patientName: user?.displayName ?? 'Patient',
+            patientEmail: user?.email,
+            flagTitle: widget.flag.title,
+            flagLevel: widget.flag.level,
+            metric: widget.flag.metric,
+            message: message,
+          );
+      if (mounted) {
+        showSnack(context, 'Review requested. Track it under My reviews.');
+      }
+    } catch (e) {
+      if (mounted) {
+        final detail = e is FirebaseException ? e.message : null;
+        showSnack(
+          context,
+          detail == null || detail.isEmpty
+              ? 'Could not send the review request. Try again.'
+              : 'Could not send review: $detail',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final review = widget.review;
+    if (review == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const DoctorBadge(state: DoctorBadgeState.notReviewed),
+          const SizedBox(height: 10),
+          Text(
+            'Ask a clinician to look at this pattern. Updates appear here and in My reviews.',
+            style: AppText.bodyMuted,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: _sending ? null : _requestReview,
+            child: Text(_sending ? 'Sending…' : 'Request review'),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (review.simulated)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: SimulatedReviewLabel(),
+          ),
+        DoctorBadge(state: _badgeFor(review)),
+        const SizedBox(height: 10),
+        Text(review.statusLabel, style: AppText.cardTitle),
+        if (review.verdict.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(review.verdict, style: AppText.body),
+        ],
+        if (review.note.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(review.note, style: AppText.bodyMuted),
+        ],
+        const SizedBox(height: 6),
+        Text(
+          review.isPending
+              ? 'Queued for a doctor · ${review.reviewedAt}'
+              : '${review.reviewerName} · ${review.reviewedAt}',
+          style: AppText.caption,
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            TextButton(
+              onPressed: () => context.push(AppRoutes.doctorReview(review.flagId)),
+              child: const Text('Open review'),
+            ),
+            TextButton(
+              onPressed: () => context.push(AppRoutes.doctors),
+              child: const Text('All my reviews'),
+            ),
+            if (review.isReviewed)
+              OutlinedButton(
+                onPressed: _sending ? null : _requestReview,
+                child: Text(_sending ? 'Sending…' : 'Request again'),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

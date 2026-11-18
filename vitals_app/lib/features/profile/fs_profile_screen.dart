@@ -624,6 +624,50 @@ class _FsProfileScreenState extends ConsumerState<FsProfileScreen> {
                 const SizedBox(height: 14),
 
                 SoftSurface(
+                  color: AppColors.mintCard,
+                  radius: 28,
+                  padding: const EdgeInsets.fromLTRB(18, 18, 14, 18),
+                  onTap: () => context.push(AppRoutes.doctors),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: const BoxDecoration(
+                          color: AppColors.surface,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.medical_services_outlined,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'My reviews',
+                              style: AppText.cardTitle.copyWith(fontSize: 17),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Track doctor replies to your requests',
+                              style: AppText.caption,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.arrow_forward_rounded,
+                        color: AppColors.inkSoft,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SoftSurface(
                   color: AppColors.skyCard,
                   radius: 28,
                   padding: const EdgeInsets.fromLTRB(18, 18, 14, 18),

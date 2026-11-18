@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/repositories/baseline_repository.dart';
 import '../data/repositories/daily_repository.dart';
+import '../data/repositories/doctor_repository.dart';
 import '../data/repositories/flag_repository.dart';
 import '../data/repositories/habit_repository.dart';
 import '../data/repositories/habit_template_repository.dart';
@@ -94,6 +95,11 @@ final habitsProvider = StreamProvider<List<HabitModel>>((ref) {
   final uid = ref.watch(currentUidProvider);
   if (uid == null) return Stream.value([]);
   return ref.watch(habitRepositoryProvider).watchAll(uid);
+});
+
+/// Active doctors available for patient review assignment.
+final doctorsProvider = StreamProvider<List<DoctorModel>>((ref) {
+  return ref.watch(doctorRepositoryProvider).watchActive();
 });
 
 /// Stream of doctor reviews for the current user.

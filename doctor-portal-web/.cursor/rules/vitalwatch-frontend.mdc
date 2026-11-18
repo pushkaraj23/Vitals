@@ -1,0 +1,260 @@
+﻿---
+description: VitalWatch frontend build prompt — phases, design tokens, medical wording rules
+alwaysApply: true
+---
+# VitalWatch Frontend: Cursor Agent Prompt (Next.js)
+
+> **How to use:** Save this file as `.cursor/rules/vitalwatch-frontend.mdc` (add `alwaysApply: true` in its frontmatter) or paste it into Cursor Agent chat. **Also attach the UI reference image** to the chat (and keep a copy at `frontend/docs/ui-reference.png`). Work through the phases in order. After each phase, run the app and check the acceptance criteria before moving on.
+
+---
+
+## 1. Product Context
+
+**VitalWatch** is a web platform that connects to smartwatch/health-sensor data and goes beyond "current state" readings. It stores the user's **long-term history**, builds a **personal baseline**, and detects **abnormal changes over time**. It then shows:
+
+- **Green / Amber / Red flags** (healthy patterns vs risky patterns)
+- **Possible symptoms** that align with a flagged pattern
+- **"If this continues"** physical and mental health impacts
+- **Checkup alerts** that escalate when patterns become worrying
+- **Habit plans** that help counter unhealthy patterns
+- **Doctor verification**: real doctors review flagged insights, because machine output can be wrong
+- A **medical history + family (hereditary) history** form that lowers alert thresholds for conditions the user is predisposed to
+
+The **backend (Python/FastAPI) is being built separately.** This task is **only the frontend** in the `frontend/` folder. It must work **standalone with mock data** and switch to the real API through one environment variable.
+
+### Non-negotiable wording rules (all UI copy)
+- VitalWatch **does not diagnose.** It shows wellness **risk flags** and screening suggestions, reviewed by doctors.
+- Use: "pattern", "may be associated with", "people with similar patterns sometimes experience", "consider discussing with a doctor".
+- **Never** write "you have <disease>".
+- Show a short disclaimer in the footer and on every flag detail page.
+- Emergency-level alerts say: "Seek medical care now."
+
+---
+
+## 2. Setup (use Next.js defaults)
+
+From the repo root:
+
+```bash
+npx create-next-app@latest frontend --yes
+```
+
+Accept the **default** options (TypeScript, ESLint, Tailwind CSS, App Router, Turbopack, `@/*` import alias). **Do not restructure the project** away from what the defaults generate. If the defaults put code under `src/`, keep using `src/`; otherwise use the root `app/`. All paths below are relative to wherever `app/` lives.
+
+Then install:
+
+```bash
+cd frontend
+npx shadcn@latest init        # accept defaults; base color: neutral; CSS variables: yes
+npm i recharts @tanstack/react-query zod react-hook-form @hookform/resolvers lucide-react clsx tailwind-merge date-fns
+```
+
+shadcn components to add as needed: `button input label select tabs dialog dropdown-menu sheet tooltip badge avatar progress switch checkbox form skeleton sonner table popover calendar`.
+
+**Tailwind version note:** if the project uses **Tailwind v4**, define design tokens in `globals.css` with `@theme` / CSS variables. If it uses **v3**, use `tailwind.config.ts`. Detect which one is installed and follow it. Don't mix them.
+
+Environment (`.env.local` and `.env.example`):
+```
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_WS_URL=ws://localhost:8000/api/v1/ws
+NEXT_PUBLIC_USE_MOCKS=true
+```
+
+---
+
+## 3. Visual Design Language
+
+**Match the attached reference image's style** (a soft dashboard UI). Reproduce the *look and feel*, **not** its content: no crypto, no logos, no brand names, no copied copy. All content is health data.
+
+### What to capture from the reference
+- **A rounded app "frame":** the whole app sits in a large dark rounded container on a soft pale-blue page background, with a **narrow dark icon sidebar** on the left and a **big white rounded main panel** on the right (generous inner padding).
+- **Very rounded everything:** frame about 40px radius, main panel about 32px, cards about 24px, buttons/inputs/chips fully pill-shaped (`rounded-full`), icon buttons circular.
+- **Pastel card colours** with dark text: lavender, mint, cream/butter, sky blue. Each domain card has its own pastel tint.
+- **Bold, friendly geometric sans-serif** headings, with muted grey secondary text. Big numbers, small labels.
+- **Soft, minimal chart:** thin light-blue line on a pale-blue gradient fill, a **dark pill tooltip** with a dot marker on the hovered point, tiny range tabs (`1W 1M 3M 6M 1Y ALL`) with the active one in bold.
+- **One dark promo/CTA card** with a pill button in light blue and a subtle outlined decorative shape.
+- **Clean table** with no heavy borders: small grey column headers, generous row height, rounded dark square icon tiles, coloured change figures, a star "watch" toggle.
+- **Circular icon buttons** for search and notifications, with a small red dot for unread. A user chip (avatar + name + chevron) in the top right.
+- Soft shadows only, no hard borders. Lots of whitespace.
+
+### Design tokens (define as CSS variables / theme)
+```
+--page-bg:        #E4EFFB   /* pale blue page background */
+--frame:          #1F1F21   /* dark rounded app frame + sidebar */
+--panel:          #FFFFFF   /* main panel */
+--ink:            #121212   /* primary text */
+--muted:          #8A909C   /* secondary text */
+--line:           #EEF1F5   /* hairlines, rare */
+
+/* pastel surfaces */
+--lavender:       #E7E0F4
+--mint:           #DCF1E3
+--cream:          #F8F0D4
+--sky:            #DCEBFB
+--chip:           #F1F4F9   /* neutral pill background */
+
+/* accents */
+--accent:         #BBDDFB   /* primary pill button */
+--accent-ink:     #0F2A44
+--good:           #3FAE6A   /* green */
+--warn:           #D99A12   /* amber */
+--bad:            #D9483B   /* red */
+--violet:         #8A63C7   /* lavender accent text */
+```
+Flag level pastel backgrounds: green `--mint`, amber `--cream`, red a soft rose `#FBE3E0`, plus a matching darker text colour. **Never rely on colour alone:** always pair level with an icon and a text label ("Healthy", "Watch", "Needs attention").
+
+**Radii:** `--r-frame: 40px; --r-panel: 32px; --r-card: 24px; --r-pill: 9999px`.
+**Shadow:** `0 8px 30px rgba(20,40,80,.08)` for cards; `0 30px 80px rgba(20,40,80,.15)` for the frame.
+
+**Typography:** load **Plus Jakarta Sans** via `next/font/google` (weights 400, 500, 600, 700, 800) for everything. Page titles 36 to 40px/800; section titles 22 to 24px/700; big numbers 32 to 40px/700; labels 12 to 14px/500 muted.
+
+**Motion:** subtle only: 150 to 200ms ease-out for hover lift on cards, tab underline, tooltip fade, number count-up on load. Respect `prefers-reduced-motion`.
+
+**Dark mode:** the frame and sidebar are already dark. For dark mode, make the main panel `#17181B` with pastel cards switching to deeper tinted versions. This is **optional, last priority.**
+
+---
+
+## 4. App Shell (build first)
+
+`app/(app)/layout.tsx` renders:
+
+1. **Page background** (`--page-bg`) with centred, max-width frame (about 1280px, full-height on mobile).
+2. **Dark rounded frame** containing:
+   - **Left sidebar (about 72px):** logo tile at the top (rounded cream square with a simple heart-pulse mark), icon nav in the middle with an **active indicator bar** on the left edge, logout icon at the bottom.
+     Nav items (lucide icons, tooltips on hover): Overview (`LayoutGrid`), Flags (`Flag`), Timeline (`ChartLine`), Habits (`Leaf`/`Sprout`), History (`ClipboardList`), Alerts (`Bell`), Settings (`Settings`). Doctor users also see **Review Queue** (`Stethoscope`).
+   - **Main white rounded panel** with a **top bar:** page title on the left (big, bold); on the right a circular **search** button, a circular **notifications** button with a red unread dot, and a **user chip** (avatar, name, chevron) opening a dropdown (Profile, Settings, Sign out).
+3. **Mobile (<768px):** sidebar becomes a **bottom tab bar** (rounded, floating), the frame loses its outer padding, and cards stack in one column.
+4. A footer line inside the panel with the medical disclaimer.
+
+---
+
+## 5. Pages and Components
+
+Create reusable components first, then pages.
+
+### Shared components (`components/`)
+- `ui/`: shadcn primitives, restyled to the tokens (pill buttons, pill inputs, rounded dialogs).
+- `layout/`: `AppFrame`, `Sidebar`, `TopBar`, `UserMenu`, `PageHeader`, `MobileTabBar`.
+- `cards/PastelCard`: props `tone: "lavender"|"mint"|"cream"|"sky"`, title, value, subtitle, icon tile, delta chip, a small "â‹®" menu.
+- `charts/TrendChart`: Recharts area/line chart, thin line, pale gradient fill, **baseline band** (p10 to p90 shaded) and a **highlighted anomaly window**, dark pill tooltip with a dot marker, **range tabs** (`1W 1M 3M 6M 1Y ALL`), skeleton loading state.
+- `charts/Sparkline`: tiny inline trend for table rows and cards.
+- `flags/FlagBadge`: level pill (icon + label + colour), `FlagCard`, `FlagTable`.
+- `flags/DoctorVerifiedBadge`: shows verdict (Confirmed / Not concerning / Needs consultation) with doctor name on hover.
+- `feedback/`: `EmptyState`, `ErrorState`, `Disclaimer`, `LearningBaselineBanner`.
+- `forms/`: `FamilyHistoryEditor` (add rows: relative Ã— condition Ã— age of onset), `MedicalHistoryEditor`, `SymptomChips`.
+
+### Pages (App Router)
+| Route | Content |
+|---|---|
+| `/` | Landing: calm hero, value proposition, 3 feature cards in pastels, CTA, disclaimer |
+| `/login`, `/register` | Centred soft card on the pale-blue background; role selector for demo (Patient / Doctor) |
+| `/onboarding` | Multi-step pill stepper: Profile â†’ Medical history â†’ **Family history** â†’ Connect device (V1: "Use demo watch") |
+| `/dashboard` (Overview) | See layout below |
+| `/flags` | Filter pills (All / Red / Amber / Green, domain, doctor-verified) + `FlagTable` |
+| `/flags/[id]` | **Flag detail** (section list below) |
+| `/timeline` | Multi-metric chart, range tabs, flag markers and symptom logs on the axis, domain toggles |
+| `/habits` | Current plan, daily check-off list, streaks, before/after metric impact chart |
+| `/history` | Edit medical + family history |
+| `/alerts` | Alert centre with urgency badges, acknowledge action |
+| `/settings` | Gentle mode switch, notification prefs, consent toggles, data export/delete |
+| `/doctor` | (role-gated) review queue table |
+| `/doctor/review/[flagId]` | Patient timeline + evidence + verdict form (Confirmed / Not concerning / Needs consultation + notes) |
+| `/demo` | Control panel: switch persona, **Simulate live sync**, **Fast-forward 7 days**, reset |
+
+### Dashboard layout (mirror the reference composition)
+- Title **"Overview"** with the top-bar controls.
+- **Row 1:** two sections side by side.
+  - **Left, "Health Trend"** (wide pastel-sky card): big **Overall Health Score** number, caption, the `TrendChart` with tooltip and range tabs.
+  - **Right, "Your Domains"**: three to four pastel cards in a row, each: domain name + "â‹®", main value (e.g. "62 bpm resting"), small caption, an icon tile (white rounded square), and a **delta-vs-baseline chip** (e.g. "+8 bpm"). Tones: **Heart = lavender, Sleep = sky, Activity = mint, Recovery/Stress = cream.**
+- **Row 2:**
+  - **Left, "Your flags are mostly steady / N need attention"** heading (like the "Market is down" line), two small pill dropdowns (period, sort), then the **flags table**: Name (dark rounded icon tile + title + domain), Current, Change vs baseline, Level (FlagBadge), Doctor status, and a star **Follow** toggle.
+  - **Right, dark promo card:** "Start your habit plan" or "Doctor review ready" (dynamic), short supporting text, a light-blue pill CTA, and the soft outlined decoration.
+- Above everything, when fewer than 14 days of data: `LearningBaselineBanner` ("We're learning your baseline. Flags unlock after 14 days.").
+
+### Flag detail page `/flags/[id]` sections (in this order)
+1. **Header:** `FlagBadge`, title, "first detected" date, Doctor-verified badge, a **Download doctor summary** pill button.
+2. **Plain-language summary** and the `TrendChart` with baseline band and the flagged window highlighted.
+3. **Why was this flagged?:** evidence table (metric, baseline, current, delta, days) and, if present, a line like "Because your father has hypertension, we watch this more closely."
+4. **Possible symptoms:** chips the user can toggle "I'm experiencing this" (writes to the symptom log), top 3 to 5 visible, the rest collapsed.
+5. **If this continues:** tabs **Physical | Mental** with source links. Respect **gentle mode** (softer wording, collapsed by default).
+6. **Checkup recommendation:** urgency badge (Info / Advise / Urgent / Emergency), specialist, suggested tests, timeframe, "Book consultation" button (stub).
+7. **Habit plan:** 1 to 3 micro-goals with targets and a "Start this plan" button.
+8. **Doctor verification:** status, verdict, doctor's notes.
+9. **Disclaimer.**
+
+---
+
+## 6. Data Layer
+
+- `lib/types.ts`: shared TypeScript types matching the backend contract (below). **No `any`.**
+- `lib/api.ts`: **one typed API client** (`fetch` wrapper) with auth header, error normalisation `{ error: { code, message } }`, and a switch: if `NEXT_PUBLIC_USE_MOCKS === "true"`, route calls to `lib/mocks/*` instead of the network.
+- `lib/mocks/`: realistic fixtures for **three personas** and their flags:
+  1. **Rahul (34, M):** red flags (resting HR trending up, HRV decline), amber (sleep duration, activity), a few green; has a pending doctor review; father with hypertension.
+  2. **Meera (28, F):** mostly green, a habit streak, a verified "not concerning" flag.
+  3. **Suresh (62, M):** amber BP trend, family history of type 2 diabetes.
+  Generate 180 days of daily series per persona with noise so charts look real.
+- `hooks/`: one TanStack Query hook per resource (`useDashboard`, `useFlags`, `useFlag`, `useReadings`, `useTimeline`, `useAlerts`, `useHabits`, `useSymptoms`, `useProfile`, `useDoctorQueue`â€¦).
+- `lib/ws.ts`: WebSocket client with auto-reconnect and a **mock event emitter** in mock mode. Events: `reading.new`, `flag.created`, `flag.updated`, `alert.created`, `review.completed`. On event, invalidate the relevant queries and show a toast. The `/demo` page's **Simulate live sync** button triggers these mock events.
+- Auth: store the JWT in memory plus an httpOnly cookie when the real API is used; in mock mode keep a simple persona session in `localStorage`. Route guards via middleware or a layout check by role (`patient`, `doctor`).
+
+### Backend contract (REST, base `/api/v1`)
+`POST /auth/login`, `GET /auth/me` Â· `GET/PUT /profile` Â· `GET/POST/PUT/DELETE /history/medical`, `/history/family` Â· `GET /dashboard` Â· `GET /readings?metric=&from=&to=&agg=` Â· `GET /flags`, `GET /flags/{id}` Â· `POST /symptoms/log` Â· `GET /alerts`, `POST /alerts/{id}/ack` Â· `GET /habits`, `POST /habits/from-flag/{flag_id}`, `POST /habits/goals/{id}/log` Â· `GET /timeline` Â· `GET /reports/summary.pdf` Â· `GET /doctor/queue`, `POST /doctor/flags/{id}/review` Â· `WS /ws`.
+
+Flag object (essential fields): `id, ruleId, domain ("heart"|"sleep"|"activity"|"recovery"|"respiratory"), level ("green"|"amber"|"red"), title, summary, evidence[], confidence, status, firstDetectedAt, doctorReviewStatus, symptoms[], ifContinues{physical[],mental[]}, checkup{level,specialist,tests[],timeframe}, remedies[], appliedModifiers[]`.
+
+---
+
+## 7. Quality Requirements
+
+- **TypeScript strict**, no `any`, ESLint clean, `tsc --noEmit` passes.
+- **Server vs client components:** keep pages as server components where possible and mark only interactive pieces `"use client"`.
+- **Responsive:** test at 375, 768, 1280 widths. No horizontal scroll.
+- **Accessibility:** semantic landmarks, labelled controls, focus rings (visible, soft), keyboard-navigable tabs and menus, contrast of text on pastels at least 4.5:1, colour is never the only signal.
+- **States:** loading skeletons, empty states, and error states for every data view.
+- **Performance:** lazy-load chart components (`next/dynamic`), memoise heavy series, downsample long series for charts.
+- **No hard-coded colours or radii in components:** use the tokens and utility classes.
+- Keep components small and reusable. Add brief JSDoc to shared components.
+- Do not add dependencies beyond those listed unless essential.
+
+---
+
+## 8. Build Phases (follow in order)
+
+**Phase 0: Setup.** Create the app with defaults, install dependencies, shadcn init, fonts, tokens, env files. *Accept:* `npm run dev` shows a styled blank page with the pale-blue background and Plus Jakarta Sans.
+
+**Phase 1: App shell.** `AppFrame`, `Sidebar`, `TopBar`, `UserMenu`, `MobileTabBar`, disclaimer footer, route group layout. *Accept:* the rounded dark frame, icon sidebar with active indicator, and white panel match the reference style at desktop and mobile widths.
+
+**Phase 2: Design system components.** `PastelCard`, `FlagBadge`, `TrendChart` (with baseline band, tooltip, range tabs), `Sparkline`, buttons/inputs/tabs restyled, a temporary `/styleguide` page showing all of them. *Accept:* the styleguide renders every component in all tones and states.
+
+**Phase 3: Data layer and mocks.** Types, API client, mock personas, hooks, persona session, route guards. *Accept:* switching persona changes all data; roles gate `/doctor`.
+
+**Phase 4: Dashboard.** Full layout from Section 5 with live mock data. *Accept:* Rahul's dashboard shows red/amber/green flags, the domain cards, the trend chart with tooltip, the flags table, and the promo card.
+
+**Phase 5: Flags list and flag detail.** All 9 sections, symptom toggles, tabs, gentle mode. *Accept:* the full Rahul story works: dashboard â†’ red flag â†’ symptoms â†’ if continues â†’ checkup â†’ habit plan.
+
+**Phase 6: Onboarding, history, settings.** Stepper, family/medical history editors with Zod validation, gentle mode and consent toggles. *Accept:* data persists in mock mode and validation errors are friendly.
+
+**Phase 7: Timeline, habits, alerts.** Multi-metric timeline with markers, habit check-offs with before/after impact, alert centre. *Accept:* ranges switch, habit check-offs update progress.
+
+**Phase 8: Doctor portal.** Queue, review page, verdict form, and the patient's **Doctor-verified** badge updating live. *Accept:* approving Rahul's flag as a doctor makes the badge appear for the patient without refresh.
+
+**Phase 9: Realtime and demo panel.** WS client, mock events, `/demo` controls, toasts. *Accept:* **Simulate live sync** animates chart updates and a new flag toast appears.
+
+**Phase 10: Polish.** Skeletons/empty/error states, accessibility pass, wording audit against Section 1, landing page, optional dark mode, Lighthouse check, README for the frontend (run, env vars, mock vs real API, folder map). *Accept:* `npm run lint`, `tsc --noEmit`, and `npm run build` all pass.
+
+### If time runs short, cut from the bottom
+**Must ship:** Phases 0 to 5 and the minimal doctor approve action from Phase 8, plus Simulate live sync from Phase 9.
+**Skip for now:** dark mode, PDF download (leave a stub button), landing page extras, correlation insights.
+
+---
+
+## 9. Working Style for the Agent
+
+- Build in phases. After each, summarise what you built, note any deviations, and wait for my "continue".
+- Start from the reference image's style, but make every screen feel health-specific, calm and trustworthy.
+- If something is ambiguous, pick the simplest option that follows this document and leave a `// TODO(V2):` comment.
+- Commit after each phase with a clear message (e.g. `feat(frontend): phase 4 dashboard`).
+- Never invent medical claims. Copy must follow the wording rules in Section 1.
+
+**Start with Phase 0 now.**
+

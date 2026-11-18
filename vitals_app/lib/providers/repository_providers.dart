@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/repositories/baseline_repository.dart';
 import '../data/repositories/daily_repository.dart';
+import '../data/repositories/doctor_repository.dart';
 import '../data/repositories/flag_repository.dart';
 import '../data/repositories/habit_repository.dart';
 import '../data/repositories/habit_template_repository.dart';
@@ -47,6 +48,10 @@ final habitRepositoryProvider = Provider<HabitRepository>((ref) {
 
 final reviewRepositoryProvider = Provider<ReviewRepository>((ref) {
   return ReviewRepository(ref.watch(firestoreInstanceProvider));
+});
+
+final doctorRepositoryProvider = Provider<DoctorRepository>((ref) {
+  return DoctorRepository(ref.watch(firestoreInstanceProvider));
 });
 
 final habitTemplateRepositoryProvider = Provider<HabitTemplateRepository>((ref) {

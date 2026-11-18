@@ -4,6 +4,8 @@
   "description": "",
   "main": "seed.js",
   "scripts": {
+    "seed": "node seed.js",
+    "seed:doctors": "node seed-doctors.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
