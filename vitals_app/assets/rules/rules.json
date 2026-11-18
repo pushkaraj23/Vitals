@@ -1,0 +1,365 @@
+{
+  "version": 1,
+  "disclaimer": "These rules describe patterns in wearable data compared with a person's own usual range. They are educational, are not diagnoses, and do not estimate the likelihood of any condition.",
+  "rules": [
+    {
+      "id": "resting_hr_drift",
+      "name": "Resting heart rate drift",
+      "summary": "Your resting heart rate has been running above your own usual range for several days in a row.",
+      "metrics": ["restingHr"],
+      "minDurationDays": 7,
+      "thresholds": { "sigma": 2.0, "redSigma": 3.5, "redDays": 14, "minDelta": 3.0 },
+      "symptoms": [
+        "Feeling more tired than usual",
+        "Noticing your heartbeat more often",
+        "Feeling restless or on edge",
+        "Lower tolerance for exercise"
+      ],
+      "impacts": {
+        "physical": [
+          "Recovery after exercise can feel slower",
+          "Energy may dip through the afternoon"
+        ],
+        "mental": [
+          "Concentration can feel harder",
+          "Stress may feel closer to the surface"
+        ]
+      },
+      "remedies": [
+        "Aim for a consistent sleep and wake time this week",
+        "Reduce late-day caffeine and alcohol and see if the trend eases",
+        "Add short, easy walks and keep hard workouts lighter for a few days",
+        "Try a 5-minute slow-breathing break once or twice a day",
+        "Stay hydrated through the day"
+      ],
+      "specialist": "General physician or cardiologist",
+      "sources": [
+        "American Heart Association (heart rate resources)",
+        "NHS (heart rate and pulse information)",
+        "European Society of Cardiology (patient information)"
+      ],
+      "hereditaryModifiers": [
+        {
+          "tag": "cardiovascular",
+          "label": "Family history of heart conditions",
+          "sigmaDelta": -0.5,
+          "minDurationDeltaDays": -2,
+          "note": "Because heart conditions run in your family, this pattern is surfaced a little sooner. This is about sensitivity only and is not a diagnosis."
+        }
+      ]
+    },
+    {
+      "id": "hrv_decline",
+      "name": "HRV decline",
+      "summary": "Your heart rate variability has stayed below your own usual range, which can reflect extra strain or reduced recovery.",
+      "metrics": ["hrv"],
+      "minDurationDays": 7,
+      "thresholds": { "sigma": 1.75, "redSigma": 3.5, "redDays": 14, "minDelta": 6.0 },
+      "symptoms": [
+        "Waking up unrefreshed",
+        "Feeling drained after normal activity",
+        "Trouble switching off in the evening",
+        "Low motivation to exercise"
+      ],
+      "impacts": {
+        "physical": [
+          "Slower bounce-back after workouts",
+          "More frequent feelings of fatigue"
+        ],
+        "mental": [
+          "Lower stress tolerance",
+          "Mood may feel flatter or more irritable"
+        ]
+      },
+      "remedies": [
+        "Protect a wind-down routine before bed",
+        "Space out intense training with lighter or rest days",
+        "Limit alcohol, especially in the evening",
+        "Build in short breaks and breathing exercises during busy days",
+        "Get some daylight and gentle movement every day"
+      ],
+      "specialist": "General physician; a sleep or sports medicine clinician if it continues",
+      "sources": [
+        "American Heart Association (heart rate resources)",
+        "Cleveland Clinic (health library on heart rate variability)",
+        "Mayo Clinic (patient education on stress and recovery)"
+      ],
+      "hereditaryModifiers": [
+        {
+          "tag": "cardiovascular",
+          "label": "Family history of heart conditions",
+          "sigmaDelta": -0.25,
+          "minDurationDeltaDays": -1,
+          "note": "Family history can make it worthwhile to notice this pattern earlier. It does not mean anything is wrong."
+        }
+      ]
+    },
+    {
+      "id": "sleep_fragmentation",
+      "name": "Sleep fragmentation",
+      "summary": "Your sleep has been more broken up than your own usual pattern, with more restless periods overnight.",
+      "metrics": ["sleepFragmentation"],
+      "minDurationDays": 5,
+      "thresholds": { "sigma": 2.0, "redSigma": 3.5, "redDays": 14, "minDelta": 4.0 },
+      "symptoms": [
+        "Waking several times during the night",
+        "Trouble falling back asleep",
+        "Daytime sleepiness",
+        "Morning headaches or a foggy feeling"
+      ],
+      "impacts": {
+        "physical": [
+          "Less restorative sleep",
+          "Appetite and energy can feel off"
+        ],
+        "mental": [
+          "Difficulty focusing",
+          "Short temper or low mood"
+        ]
+      },
+      "remedies": [
+        "Keep the bedroom cool, dark and quiet",
+        "Avoid screens and heavy meals in the hour or two before bed",
+        "Cut back on caffeine after midday",
+        "Keep alcohol away from bedtime",
+        "Write down worries earlier in the evening so they stay off your mind at night"
+      ],
+      "specialist": "General physician or sleep medicine specialist",
+      "sources": [
+        "American Academy of Sleep Medicine (patient resources)",
+        "National Sleep Foundation (sleep hygiene guidance)",
+        "NHS (sleep and insomnia information)"
+      ],
+      "hereditaryModifiers": [
+        {
+          "tag": "sleep_disorders",
+          "label": "Family history of sleep problems",
+          "sigmaDelta": -0.25,
+          "minDurationDeltaDays": -1,
+          "note": "Sleep patterns can run in families, so this is surfaced slightly earlier. It is not a diagnosis."
+        }
+      ]
+    },
+    {
+      "id": "low_deep_sleep",
+      "name": "Low deep sleep",
+      "summary": "The deep sleep your wearable estimates has been below your own usual range for a while.",
+      "metrics": ["deepSleep"],
+      "minDurationDays": 7,
+      "thresholds": { "sigma": 1.5, "redSigma": 3.5, "redDays": 14, "minDelta": 0.3 },
+      "symptoms": [
+        "Waking up feeling unrefreshed",
+        "Slower recovery after exercise",
+        "Afternoon energy slumps",
+        "Feeling foggy in the morning"
+      ],
+      "impacts": {
+        "physical": [
+          "Muscle recovery may feel slower",
+          "Energy may be lower through the day"
+        ],
+        "mental": [
+          "Memory and focus can feel less sharp",
+          "Mood may be more easily affected"
+        ]
+      },
+      "remedies": [
+        "Keep a steady bedtime and wake time, including weekends",
+        "Finish intense exercise a few hours before bed",
+        "Avoid alcohol close to bedtime",
+        "Keep your room cool and dark",
+        "Get morning daylight to support your body clock"
+      ],
+      "specialist": "General physician or sleep medicine specialist",
+      "sources": [
+        "American Academy of Sleep Medicine (patient resources)",
+        "National Sleep Foundation (sleep stages overview)",
+        "Cleveland Clinic (health library on sleep)"
+      ],
+      "hereditaryModifiers": []
+    },
+    {
+      "id": "spo2_dips",
+      "name": "SpO₂ dips",
+      "summary": "Your overnight blood-oxygen readings have been lower than your own usual range on several days.",
+      "metrics": ["spo2"],
+      "minDurationDays": 3,
+      "thresholds": { "sigma": 2.0, "redSigma": 3.5, "redDays": 7, "minDelta": 1.5 },
+      "symptoms": [
+        "Morning headaches",
+        "Waking up with a dry mouth or sore throat",
+        "Daytime sleepiness",
+        "Feeling short of breath with light activity"
+      ],
+      "impacts": {
+        "physical": [
+          "Sleep may feel less restful",
+          "Energy may be lower during the day"
+        ],
+        "mental": [
+          "Trouble concentrating",
+          "Low mood or irritability"
+        ]
+      },
+      "remedies": [
+        "Check that your wearable fits snugly and the sensor is clean, since fit affects readings",
+        "Try sleeping on your side instead of your back",
+        "Avoid alcohol and sedating substances before bed",
+        "Keep your sleeping space well ventilated"
+      ],
+      "specialist": "General physician or pulmonologist; a sleep specialist if breathing at night is a concern",
+      "sources": [
+        "American Thoracic Society (patient information)",
+        "NHS (blood oxygen level information)",
+        "Mayo Clinic (patient education on breathing and sleep)"
+      ],
+      "hereditaryModifiers": [
+        {
+          "tag": "respiratory",
+          "label": "Family history of breathing or lung conditions",
+          "sigmaDelta": -0.25,
+          "minDurationDeltaDays": -1,
+          "note": "Family history can make it sensible to notice this sooner. Wearable oxygen readings are estimates and can vary with fit."
+        }
+      ]
+    },
+    {
+      "id": "low_activity",
+      "name": "Low activity",
+      "summary": "Your daily movement has been lower than your own usual range for an extended stretch.",
+      "metrics": ["steps"],
+      "minDurationDays": 10,
+      "thresholds": { "sigma": 1.5, "redSigma": 3.5, "redDays": 21, "minDelta": 1500.0 },
+      "symptoms": [
+        "Feeling stiff or sluggish",
+        "Lower energy",
+        "Feeling low or unmotivated",
+        "Trouble sleeping"
+      ],
+      "impacts": {
+        "physical": [
+          "Fitness and stamina can slip",
+          "Muscles and joints may feel stiffer"
+        ],
+        "mental": [
+          "Mood can dip",
+          "Stress may feel harder to shake off"
+        ]
+      },
+      "remedies": [
+        "Add a 10-minute walk after a meal",
+        "Take short movement breaks every hour if you sit for work",
+        "Pick one active habit you enjoy and do it at a fixed time",
+        "Use stairs or walk part of your commute when you can",
+        "Invite a friend along to make it easier to stick with"
+      ],
+      "specialist": "General physician or a physiotherapist",
+      "sources": [
+        "World Health Organization (physical activity guidance)",
+        "Centers for Disease Control and Prevention (physical activity basics)",
+        "NHS (exercise guidelines for adults)"
+      ],
+      "hereditaryModifiers": [
+        {
+          "tag": "metabolic",
+          "label": "Family history of diabetes or metabolic conditions",
+          "sigmaDelta": -0.25,
+          "minDurationDeltaDays": -2,
+          "note": "Regular movement is especially helpful when metabolic conditions run in the family. This only adjusts how soon the pattern is shown."
+        }
+      ]
+    },
+    {
+      "id": "elevated_respiratory_rate",
+      "name": "Elevated respiratory rate",
+      "summary": "Your breathing rate during sleep has been higher than your own usual range for several days.",
+      "metrics": ["respiratoryRate"],
+      "minDurationDays": 5,
+      "thresholds": { "sigma": 2.0, "redSigma": 3.5, "redDays": 10, "minDelta": 1.5 },
+      "symptoms": [
+        "Feeling short of breath",
+        "A stuffy nose or mild cough",
+        "Feeling unusually tired",
+        "Feeling warm or run down"
+      ],
+      "impacts": {
+        "physical": [
+          "Breathing can feel less easy during exertion",
+          "Recovery may feel slower"
+        ],
+        "mental": [
+          "Feeling tense or on edge",
+          "Harder to relax at night"
+        ]
+      },
+      "remedies": [
+        "Rest more and ease off intense exercise for a few days",
+        "Drink fluids and keep your room comfortably humid",
+        "Practise slow, relaxed breathing before bed",
+        "Avoid smoke and strong irritants",
+        "Note any cold-like symptoms, since they often explain short-term changes"
+      ],
+      "specialist": "General physician or pulmonologist",
+      "sources": [
+        "American Thoracic Society (patient information)",
+        "NHS (breathing and lung health information)",
+        "World Health Organization (respiratory health information)"
+      ],
+      "hereditaryModifiers": [
+        {
+          "tag": "respiratory",
+          "label": "Family history of breathing or lung conditions",
+          "sigmaDelta": -0.25,
+          "minDurationDeltaDays": -1,
+          "note": "Family history can make it sensible to notice this pattern earlier. It is not a diagnosis."
+        }
+      ]
+    },
+    {
+      "id": "irregular_sleep_schedule",
+      "name": "Irregular sleep schedule",
+      "summary": "Your bedtime has been shifting more than usual from night to night.",
+      "metrics": ["bedtimeVariability"],
+      "minDurationDays": 7,
+      "thresholds": { "sigma": 1.5, "redSigma": 3.5, "redDays": 14, "minDelta": 20.0 },
+      "symptoms": [
+        "Feeling jet-lagged without travelling",
+        "Trouble falling asleep at your usual time",
+        "Grogginess in the morning",
+        "Energy that is uneven across the day"
+      ],
+      "impacts": {
+        "physical": [
+          "Body clock may feel out of step",
+          "Appetite and energy can be less steady"
+        ],
+        "mental": [
+          "Mood can feel less stable",
+          "Focus may vary from day to day"
+        ]
+      },
+      "remedies": [
+        "Pick a target bedtime and move toward it in small steps",
+        "Keep your wake time steady, even on weekends",
+        "Get bright light soon after waking",
+        "Dim lights and screens in the evening",
+        "Plan late nights ahead and protect the following morning"
+      ],
+      "specialist": "General physician or sleep medicine specialist",
+      "sources": [
+        "National Sleep Foundation (sleep schedule guidance)",
+        "American Academy of Sleep Medicine (patient resources)",
+        "Centers for Disease Control and Prevention (sleep and sleep disorders)"
+      ],
+      "hereditaryModifiers": [
+        {
+          "tag": "sleep_disorders",
+          "label": "Family history of sleep problems",
+          "sigmaDelta": -0.25,
+          "minDurationDeltaDays": -1,
+          "note": "Sleep timing can run in families, so this is shown a little sooner. It does not indicate a condition."
+        }
+      ]
+    }
+  ]
+}
