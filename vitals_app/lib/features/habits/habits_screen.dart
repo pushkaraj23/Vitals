@@ -1,389 +1,420 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_ui/material_ui.dart' hide Baseline;
+import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
-import '../../core/utils/metric_format.dart';
+import '../../core/utils/metric_labels.dart';
+import '../../core/widgets/ink_app_bar.dart';
 import '../../core/widgets/widgets.dart';
-import '../../domain/models/daily_reading.dart';
-import '../../domain/models/enums.dart';
-import '../../domain/models/habit.dart';
-import '../../providers/providers.dart';
+import '../../data/repositories/habit_repository.dart';
+import '../../data/repositories/habit_template_repository.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/data_providers.dart';
+import '../../providers/repository_providers.dart';
 
-/// At most this many habits can be active at once.
-const maxActiveHabits = 3;
-
-/// Which habits are in the active plan. `null` means "the first three".
-/// Resets when the persona changes.
-class ActiveHabitIdsNotifier extends Notifier<Set<String>?> {
-  @override
-  Set<String>? build() {
-    ref.watch(personaIdProvider);
-    return null;
-  }
-
-  Set<String> resolve(List<Habit> habits) =>
-      state ?? habits.take(maxActiveHabits).map((h) => h.id).toSet();
-
-  void activate(List<Habit> habits, String id) {
-    final next = {...resolve(habits), id};
-    if (next.length <= maxActiveHabits) state = next;
-  }
-
-  void pause(List<Habit> habits, String id) {
-    state = {...resolve(habits)}..remove(id);
-  }
-}
-
-final activeHabitIdsProvider =
-    NotifierProvider<ActiveHabitIdsNotifier, Set<String>?>(
-      ActiveHabitIdsNotifier.new,
-    );
-
-class _Suggestion {
-  const _Suggestion(this.id, this.title, this.subtitle, this.domain, this.days);
-
-  final String id;
-  final String title;
-  final String subtitle;
-  final HealthDomain domain;
-  final int days;
-}
-
-const _suggestions = <_Suggestion>[
-  _Suggestion('s_wind_down', 'Screens off 30 minutes before bed',
-      'A calmer wind-down can make settling easier', HealthDomain.sleep, 5),
-  _Suggestion('s_regular_wake', 'Wake at the same time',
-      'A steady wake time supports a steady body clock', HealthDomain.sleep, 6),
-  _Suggestion('s_walk', '15-minute walk',
-      'Gentle movement most days of the week', HealthDomain.activity, 5),
-  _Suggestion('s_stairs', 'Take the stairs',
-      'Small bursts of movement through the day', HealthDomain.activity, 5),
-  _Suggestion('s_breathing', '3-minute breathing break',
-      'Slow breathing once a day', HealthDomain.stressRecovery, 5),
-  _Suggestion('s_unplug', 'Short break from screens',
-      'Step away for five minutes every couple of hours',
-      HealthDomain.stressRecovery, 5),
-  _Suggestion('s_water', 'Drink water through the day',
-      'Keep a bottle within reach', HealthDomain.heart, 7),
-  _Suggestion('s_stretch', 'Easy stretching',
-      'Five minutes to loosen up after sitting', HealthDomain.heart, 4),
-  _Suggestion('s_fresh_air', 'Fresh-air break',
-      'A few minutes outside, breathing easy', HealthDomain.respiratory, 5),
-];
-
-class HabitsScreen extends ConsumerStatefulWidget {
+class HabitsScreen extends ConsumerWidget {
   const HabitsScreen({super.key});
 
-  @override
-  ConsumerState<HabitsScreen> createState() => _HabitsScreenState();
-}
+  static const _cardColors = [
+    AppColors.peachCard,
+    AppColors.lavenderCard,
+    AppColors.skyCard,
+    AppColors.mintCard,
+    AppColors.creamCard,
+  ];
 
-class _HabitsScreenState extends ConsumerState<HabitsScreen> {
-  HealthDomain? _category;
+  String get _today => DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-  Future<void> _toggle(Habit habit) async {
+  Future<void> _toggle(
+    WidgetRef ref,
+    BuildContext context,
+    HabitModel habit,
+  ) async {
+    final uid = ref.read(currentUidProvider);
+    if (uid == null) return;
+    final today = _today;
+    final progress = [...habit.progress];
+    final idx = progress.indexWhere((p) => p.date == today);
+    if (idx >= 0) {
+      progress[idx] = HabitProgressItem(date: today, done: !progress[idx].done);
+    } else {
+      progress.add(HabitProgressItem(date: today, done: true));
+    }
     try {
-      await ref.read(habitsProvider.notifier).toggle(habit.id);
+      await ref
+          .read(habitRepositoryProvider)
+          .updateProgress(uid, habit.id, progress);
     } catch (_) {
-      if (mounted) showSnack(context, 'Could not update "${habit.title}". Try again.');
+      if (context.mounted) {
+        showSnack(context, 'Could not update "${habit.title}". Try again.');
+      }
     }
   }
 
-  Future<void> _add(List<Habit> habits, _Suggestion s) async {
-    final active = ref.read(activeHabitIdsProvider.notifier).resolve(habits);
-    if (active.length >= maxActiveHabits) {
-      showSnack(context, 'You have $maxActiveHabits active habits. Pause one first.');
+  Future<void> _pickTemplate(BuildContext context, WidgetRef ref) async {
+    final templatesAsync = ref.read(habitTemplatesProvider);
+    final templates = templatesAsync.value ?? [];
+    if (templates.isEmpty) {
+      showSnack(context, 'No habit templates available yet.');
       return;
     }
-    final habit = Habit(
-      id: s.id,
-      title: s.title,
-      subtitle: s.subtitle,
-      domain: s.domain,
-      targetDaysPerWeek: s.days,
-    );
-    try {
-      await ref.read(habitsProvider.notifier).add(habit);
-      ref.read(activeHabitIdsProvider.notifier).activate([...habits, habit], s.id);
-      if (mounted) showSnack(context, 'Added "${s.title}" to your plan.');
-    } catch (_) {
-      if (mounted) showSnack(context, 'Could not add the habit. Try again.');
-    }
-  }
 
-  @override
-  Widget build(BuildContext context) {
-    final habitsAsync = ref.watch(habitsProvider);
-    // Rebuild when the active selection changes.
-    ref.watch(activeHabitIdsProvider);
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: CenteredBody(
-          child: habitsAsync.when(
-            loading: () => const ListSkeleton(),
-            error: (e, _) => FeatureError(
-              what: 'your habits',
-              onRetry: () => ref.invalidate(habitsProvider),
-            ),
-            data: _buildData,
-          ),
-        ),
+    final selected = await showModalBottomSheet<HabitTemplateModel>(
+      context: context,
+      backgroundColor: AppColors.canvas,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-    );
-  }
-
-  Widget _buildData(List<Habit> habits) {
-    final activeIds = ref.read(activeHabitIdsProvider.notifier).resolve(habits);
-    final active = [for (final h in habits) if (activeIds.contains(h.id)) h];
-    final paused = [for (final h in habits) if (!activeIds.contains(h.id)) h];
-    final atLimit = active.length >= maxActiveHabits;
-    final doneToday = active.where((h) => h.isDoneOn(DateTime.now())).length;
-    final bestStreak = active.isEmpty
-        ? 0
-        : active.map((h) => h.currentStreak()).reduce((a, b) => a > b ? a : b);
-
-    final existingIds = habits.map((h) => h.id).toSet();
-    final suggestions = [
-      for (final s in _suggestions)
-        if (!existingIds.contains(s.id) &&
-            (_category == null || s.domain == _category))
-          s,
-    ];
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(habitsProvider);
-        try {
-          await ref.read(habitsProvider.future);
-        } catch (_) {}
-      },
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-        children: [
-          Text('Habits', style: AppText.screenTitle),
-          const SizedBox(height: 4),
-          Text(
-            'A few small goals beat a long list. Pick up to $maxActiveHabits.',
-            style: AppText.bodyMuted,
-          ),
-          const SizedBox(height: 16),
-          Row(
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _StatTile(
-                  background: AppColors.mintCard,
-                  icon: Icons.local_fire_department_rounded,
-                  value: '$bestStreak',
-                  label: bestStreak == 1 ? 'day streak' : 'day streak (best)',
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.line,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _StatTile(
-                  background: AppColors.creamCard,
-                  icon: Icons.check_circle_rounded,
-                  value: '$doneToday/${active.length}',
-                  label: 'done today',
+              const SizedBox(height: 16),
+              Text('Choose a habit', style: AppText.cardTitle.copyWith(fontSize: 20)),
+              const SizedBox(height: 4),
+              Text(
+                'Small daily practices linked to your wellness patterns.',
+                style: AppText.bodyMuted,
+              ),
+              const SizedBox(height: 16),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(ctx).height * 0.5,
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: templates.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (_, i) {
+                    final t = templates[i];
+                    final color = _cardColors[i % _cardColors.length];
+                    return SoftSurface(
+                      color: color,
+                      radius: 22,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      onTap: () => Navigator.pop(ctx, t),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: const BoxDecoration(
+                              color: AppColors.surface,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              _iconForTitle(t.title),
+                              color: AppColors.ink,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  t.title,
+                                  style: AppText.cardTitle.copyWith(fontSize: 16),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${t.durationDays} days · ${t.targetPerDay}/day',
+                                  style: AppText.caption,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.add_rounded,
+                            color: AppColors.inkSoft,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          SectionHeader(title: 'Your plan · ${active.length}/$maxActiveHabits'),
-          const SizedBox(height: 12),
-          if (active.isEmpty)
-            SoftSurface(
-              child: EmptyState(
-                title: 'No active habits',
-                message: 'Choose a suggestion below to start your plan.',
-                icon: Icons.spa_outlined,
-              ),
-            )
-          else
-            for (final h in active)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _HabitCard(
-                  habit: h,
-                  onToggle: () => _toggle(h),
-                  onPause: () => ref
-                      .read(activeHabitIdsProvider.notifier)
-                      .pause(habits, h.id),
-                ),
-              ),
-          if (atLimit)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.creamCard,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'You have $maxActiveHabits active habits, which is the '
-                      'limit. Pause one to add another.',
-                      style: AppText.caption.copyWith(color: AppColors.ink),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          const SizedBox(height: 20),
-          _ImpactCard(active: active),
-          const SizedBox(height: 20),
-          _BreathingLinkCard(onTap: () => context.push(AppRoutes.breathing)),
-          if (paused.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            const SectionHeader(title: 'Paused'),
-            const SizedBox(height: 12),
-            for (final h in paused)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: SoftSurface(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-                  child: Row(
-                    children: [
-                      Icon(h.domain.icon, color: AppColors.muted),
-                      const SizedBox(width: 12),
-                      Expanded(child: Text(h.title, style: AppText.body)),
-                      TextButton(
-                        onPressed: atLimit
-                            ? null
-                            : () => ref
-                                  .read(activeHabitIdsProvider.notifier)
-                                  .activate(habits, h.id),
-                        child: const Text('Resume'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-          const SizedBox(height: 20),
-          const SectionHeader(title: 'Suggested habits'),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                AppChip(
-                  label: 'All',
-                  selected: _category == null,
-                  onTap: () => setState(() => _category = null),
-                ),
-                for (final d in HealthDomain.values) ...[
-                  const SizedBox(width: 8),
-                  AppChip(
-                    label: d.label,
-                    icon: d.icon,
-                    selected: _category == d,
-                    onTap: () => setState(() => _category = d),
-                  ),
-                ],
-              ],
-            ),
+        ),
+      ),
+    );
+    if (selected == null || !context.mounted) return;
+
+    final uid = ref.read(currentUidProvider);
+    if (uid == null) return;
+    final habit = HabitModel(
+      id: const Uuid().v4(),
+      templateId: selected.id,
+      title: selected.title,
+      startDate: _today,
+      durationDays: selected.durationDays,
+      progress: const [],
+    );
+    try {
+      await ref.read(habitRepositoryProvider).createHabit(uid, habit);
+      if (context.mounted) showSnack(context, 'Added "${selected.title}".');
+    } catch (_) {
+      if (context.mounted) {
+        showSnack(context, 'Could not add the habit. Try again.');
+      }
+    }
+  }
+
+  static IconData _iconForTitle(String title) {
+    final t = title.toLowerCase();
+    if (t.contains('breath') || t.contains('air')) return Icons.air_rounded;
+    if (t.contains('walk') || t.contains('step')) return Icons.directions_walk_rounded;
+    if (t.contains('water') || t.contains('hydrat')) return Icons.water_drop_rounded;
+    if (t.contains('sleep') || t.contains('wind')) return Icons.bedtime_rounded;
+    if (t.contains('stretch') || t.contains('yoga')) {
+      return Icons.self_improvement_rounded;
+    }
+    return Icons.favorite_outline_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final habitsAsync = ref.watch(habitsProvider);
+
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      appBar: InkAppBar(
+        title: 'Habits',
+        subtitle: 'Small practices, steady gains',
+        actions: [
+          IconButton(
+            tooltip: 'Add habit',
+            onPressed: () => _pickTemplate(context, ref),
+            icon: const Icon(Icons.add_rounded),
           ),
-          const SizedBox(height: 12),
-          if (suggestions.isEmpty)
-            const SoftSurface(
-              child: EmptyState(
-                title: 'No more suggestions here',
-                message: 'Try another category.',
-                icon: Icons.lightbulb_outline_rounded,
-              ),
-            )
-          else
-            for (final s in suggestions)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: SoftSurface(
+        ],
+      ),
+      body: habitsAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => ErrorState(
+          message: 'Could not load habits.',
+          onRetry: () => ref.invalidate(habitsProvider),
+        ),
+        data: (habits) {
+          final doneToday = habits
+              .where((h) => h.progress.any((p) => p.date == _today && p.done))
+              .length;
+
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(habitsProvider);
+              await ref.read(habitsProvider.future);
+            },
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+              children: [
+                SoftSurface(
+                  color: AppColors.skyCard,
+                  radius: 28,
+                  padding: const EdgeInsets.fromLTRB(18, 18, 14, 18),
+                  onTap: () => context.push(AppRoutes.breathing),
                   child: Row(
                     children: [
                       Container(
-                        width: 40,
-                        height: 40,
+                        width: 56,
+                        height: 56,
                         decoration: const BoxDecoration(
-                          color: AppColors.lavenderCard,
+                          color: AppColors.surface,
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(s.domain.icon, size: 20),
+                        child: const Icon(
+                          Icons.air_rounded,
+                          color: AppColors.ink,
+                          size: 28,
+                        ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(s.title, style: AppText.cardTitle),
-                            Text(s.subtitle, style: AppText.caption),
+                            Text(
+                              'Breathing break',
+                              style: AppText.cardTitle.copyWith(fontSize: 18),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '4s in · 6s out — follow the circle',
+                              style: AppText.caption,
+                            ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      PillButton(
-                        label: 'Add',
-                        expanded: false,
-                        height: 40,
-                        variant: PillButtonVariant.secondary,
-                        onPressed: atLimit ? null : () => _add(habits, s),
+                      const Icon(
+                        Icons.arrow_forward_rounded,
+                        color: AppColors.inkSoft,
                       ),
                     ],
                   ),
                 ),
-              ),
-          if (atLimit && suggestions.isNotEmpty)
-            Text(
-              'Adding is switched off until you pause a habit.',
-              style: AppText.caption,
-            ),
-          const SizedBox(height: 16),
-          const DisclaimerBanner(),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatTile extends StatelessWidget {
-  const _StatTile({
-    required this.background,
-    required this.icon,
-    required this.value,
-    required this.label,
-  });
-
-  final Color background;
-  final IconData icon;
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return SoftSurface(
-      color: background,
-      child: Row(
-        children: [
-          Icon(icon, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(value, style: AppText.bigNumber.copyWith(fontSize: 26)),
-                Text(label, style: AppText.caption.copyWith(color: AppColors.ink)),
+                const SizedBox(height: 14),
+                if (habits.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SoftSurface(
+                          color: AppColors.mintCard,
+                          radius: 22,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${habits.length}',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                              Text('Active', style: AppText.caption),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SoftSurface(
+                          color: AppColors.creamCard,
+                          radius: 22,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$doneToday/${habits.length}',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                              Text('Done today', style: AppText.caption),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Text('Your habits', style: AppText.cardTitle),
+                  const SizedBox(height: 10),
+                  for (var i = 0; i < habits.length; i++) ...[
+                    _HabitCard(
+                      habit: habits[i],
+                      color: _cardColors[i % _cardColors.length],
+                      todayDone: habits[i]
+                          .progress
+                          .any((p) => p.date == _today && p.done),
+                      onToggle: () => _toggle(ref, context, habits[i]),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ] else ...[
+                  SoftSurface(
+                    color: AppColors.lavenderCard,
+                    radius: 28,
+                    padding: const EdgeInsets.fromLTRB(22, 28, 22, 28),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 64,
+                          height: 64,
+                          decoration: const BoxDecoration(
+                            color: AppColors.surface,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.self_improvement_rounded,
+                            size: 32,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No habits yet',
+                          style: AppText.cardTitle.copyWith(fontSize: 20),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Pick a template to build a small daily practice linked to your wellness insights.',
+                          style: AppText.bodyMuted,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 18),
+                        Material(
+                          color: AppColors.ink,
+                          borderRadius: BorderRadius.circular(999),
+                          child: InkWell(
+                            onTap: () => _pickTemplate(context, ref),
+                            borderRadius: BorderRadius.circular(999),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                              child: Text(
+                                'Add a habit',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.surface,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Text(
+                  'VitalWatch provides wellness insights, not medical diagnoses.',
+                  style: AppText.caption,
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -392,24 +423,26 @@ class _StatTile extends StatelessWidget {
 class _HabitCard extends StatelessWidget {
   const _HabitCard({
     required this.habit,
+    required this.color,
+    required this.todayDone,
     required this.onToggle,
-    required this.onPause,
   });
 
-  final Habit habit;
+  final HabitModel habit;
+  final Color color;
+  final bool todayDone;
   final VoidCallback onToggle;
-  final VoidCallback onPause;
 
   @override
   Widget build(BuildContext context) {
-    final done = habit.isDoneOn(DateTime.now());
-    final week = habit.completionsThisWeek();
-    final target = habit.targetDaysPerWeek;
-    final progress = target == 0 ? 0.0 : (week / target).clamp(0.0, 1.0);
-    final streak = habit.currentStreak();
-    final isBreathing = habit.id.contains('breathing');
+    final progress = habit.durationDays == 0
+        ? 0.0
+        : (habit.completedCount / habit.durationDays).clamp(0.0, 1.0);
 
     return SoftSurface(
+      color: color,
+      radius: 28,
+      padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -420,240 +453,74 @@ class _HabitCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(habit.title, style: AppText.cardTitle),
-                    const SizedBox(height: 2),
-                    Text(habit.subtitle, style: AppText.bodyMuted),
+                    Text(
+                      habit.title,
+                      style: AppText.cardTitle.copyWith(fontSize: 18),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Day ${habit.completedCount} of ${habit.durationDays}',
+                      style: AppText.caption.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Semantics(
-                button: true,
-                label: done
-                    ? 'Mark ${habit.title} not done today'
-                    : 'Mark ${habit.title} done today',
-                child: Material(
-                  color: done ? AppColors.flagGreen : AppColors.canvas,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: onToggle,
-                    child: SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: Icon(
-                        Icons.check_rounded,
-                        color: done ? AppColors.surface : AppColors.muted,
-                      ),
+              Material(
+                color: todayDone ? AppColors.ink : AppColors.surface,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onToggle,
+                  child: SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(
+                      todayDone
+                          ? Icons.check_rounded
+                          : Icons.circle_outlined,
+                      color: todayDone ? AppColors.surface : AppColors.inkSoft,
+                      size: 22,
                     ),
                   ),
                 ),
               ),
             ],
           ),
+          if (habit.metric != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.surface.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${MetricLabels.label(habit.metric!)}  '
+                '${habit.metricBefore?.toStringAsFixed(1) ?? '—'} → '
+                '${habit.metricAfter?.toStringAsFixed(1) ?? '—'}',
+                style: AppText.caption.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           ClipRRect(
             borderRadius: BorderRadius.circular(99),
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 8,
-              backgroundColor: AppColors.line,
-              color: AppColors.flagGreen,
+              backgroundColor: AppColors.surface.withValues(alpha: 0.55),
+              color: AppColors.ink,
             ),
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Text('$week of $target days this week', style: AppText.caption),
-              const Spacer(),
-              const Icon(
-                Icons.local_fire_department_rounded,
-                size: 16,
-                color: AppColors.flagAmber,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                streak == 0 ? 'No streak yet' : '$streak-day streak',
-                style: AppText.caption.copyWith(color: AppColors.ink),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              if (isBreathing)
-                TextButton.icon(
-                  onPressed: () => context.push(AppRoutes.breathing),
-                  icon: const Icon(Icons.air_rounded, size: 18),
-                  label: const Text('Start session'),
-                ),
-              const Spacer(),
-              TextButton(onPressed: onPause, child: const Text('Pause')),
-            ],
+          Text(
+            todayDone ? 'Done for today' : 'Tap the check when finished',
+            style: AppText.caption,
           ),
         ],
       ),
-    );
-  }
-}
-
-class _BreathingLinkCard extends StatelessWidget {
-  const _BreathingLinkCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return DarkPromoCard(
-      badge: '1, 3 or 5 minutes',
-      title: 'Guided breathing',
-      body: 'Slow, even breaths with a simple expanding circle. Stop any '
-          'time you like.',
-      buttonLabel: 'Start breathing',
-      onPressed: onTap,
-    );
-  }
-}
-
-/// Side-by-side look at the metric a habit relates to. Observational only.
-class _ImpactCard extends ConsumerWidget {
-  const _ImpactCard({required this.active});
-
-  final List<Habit> active;
-
-  static const _fallbackMetric = <HealthDomain, VitalMetric>{
-    HealthDomain.heart: VitalMetric.restingHr,
-    HealthDomain.sleep: VitalMetric.sleepDuration,
-    HealthDomain.activity: VitalMetric.steps,
-    HealthDomain.stressRecovery: VitalMetric.hrv,
-    HealthDomain.respiratory: VitalMetric.respiratoryRate,
-  };
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final readingsAsync = ref.watch(readingsProvider(ChartRange.all));
-    final rules = ref.watch(rulesProvider).value ?? const [];
-
-    // The most consistent active habit this week drives the card.
-    final candidates = [...active]
-      ..sort(
-        (a, b) => b.completionsThisWeek().compareTo(a.completionsThisWeek()),
-      );
-    final habit = candidates.isEmpty ? null : candidates.first;
-
-    return SoftSurface(
-      color: AppColors.lavenderCard,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.insights_rounded),
-              const SizedBox(width: 8),
-              Text('Is it showing up in your data?', style: AppText.cardTitle),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (habit == null)
-            Text(
-              'Add a habit and keep it going for a week or two. We will put '
-              'your related numbers side by side here.',
-              style: AppText.body,
-            )
-          else
-            readingsAsync.when(
-              loading: () => const ShimmerLikeSkeleton(height: 60, radius: 16),
-              error: (e, _) => Text(
-                'We could not load your readings just now.',
-                style: AppText.body,
-              ),
-              data: (readings) {
-                VitalMetric? metric;
-                for (final r in rules) {
-                  if (r.id == habit.linkedRuleId) metric = r.primaryMetric;
-                }
-                metric ??= _fallbackMetric[habit.domain]!;
-                return _impactBody(habit, metric, readings);
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _impactBody(
-    Habit habit,
-    VitalMetric metric,
-    List<DailyReading> readings,
-  ) {
-    double? avg(List<DailyReading> slice) {
-      final v = [
-        for (final r in slice)
-          if (r.valueOf(metric) != null) r.valueOf(metric)!,
-      ];
-      if (v.length < 3) return null;
-      return v.reduce((a, b) => a + b) / v.length;
-    }
-
-    final n = readings.length;
-    final recent = n >= 7 ? avg(readings.sublist(n - 7)) : null;
-    final before = n >= 14 ? avg(readings.sublist(n - 14, n - 7)) : null;
-
-    if (recent == null || before == null) {
-      return Text(
-        'Not enough ${metric.label} readings yet to compare two weeks. '
-        'Keep wearing your device and check back soon.',
-        style: AppText.body,
-      );
-    }
-    final diff = recent - before;
-    final steady = before == 0 || (diff / before).abs() < 0.02;
-    final better = metric.higherIsBetter ? diff > 0 : diff < 0;
-    final (icon, color, word) = steady
-        ? (Icons.trending_flat_rounded, AppColors.muted, 'about the same')
-        : better
-            ? (
-                diff > 0
-                    ? Icons.trending_up_rounded
-                    : Icons.trending_down_rounded,
-                AppColors.flagGreen,
-                'moving the healthier way',
-              )
-            : (
-                diff > 0
-                    ? Icons.trending_up_rounded
-                    : Icons.trending_down_rounded,
-                AppColors.flagAmber,
-                'moving the other way',
-              );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'While keeping up "${habit.title}", your ${metric.label.toLowerCase()} '
-          'averaged ${MetricFormat.withUnit(metric, recent)} over the last 7 days, '
-          'compared with ${MetricFormat.withUnit(metric, before)} the 7 days before.',
-          style: AppText.body,
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(width: 6),
-            Text(
-              'That is $word.',
-              style: AppText.label.copyWith(color: AppColors.ink),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'This is a side-by-side of your own numbers. Many things affect '
-          'vitals, so it does not show the habit is the cause.',
-          style: AppText.caption.copyWith(color: AppColors.ink),
-        ),
-      ],
     );
   }
 }

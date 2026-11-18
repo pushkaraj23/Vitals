@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/app_colors.dart';
+import '../utils/chart_scale.dart';
 import '../utils/format.dart';
 import '../../domain/models/enums.dart';
 
@@ -51,12 +52,9 @@ class _HeroChartCardState extends State<HeroChartCard> {
       for (var i = 0; i < widget.points.length; i++)
         FlSpot(i.toDouble(), widget.points[i]),
     ];
-    final minY = widget.points.isEmpty
-        ? 0.0
-        : widget.points.reduce((a, b) => a < b ? a : b) * 0.92;
-    final maxY = widget.points.isEmpty
-        ? 1.0
-        : widget.points.reduce((a, b) => a > b ? a : b) * 1.08;
+    final yBounds = ChartScale.bounds(widget.points);
+    final minY = yBounds.minY;
+    final maxY = yBounds.maxY;
 
     return Semantics(
       label: widget.semanticsSummary ??

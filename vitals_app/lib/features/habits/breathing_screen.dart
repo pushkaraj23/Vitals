@@ -5,8 +5,8 @@ import 'package:material_ui/material_ui.dart' hide Baseline;
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
+import '../../core/widgets/ink_app_bar.dart';
 import '../../core/widgets/widgets.dart';
-import '../../providers/providers.dart';
 
 enum _Phase { idle, running, paused, done }
 
@@ -80,22 +80,8 @@ class _BreathingScreenState extends ConsumerState<BreathingScreen> {
   }
 
   Future<void> _logHabit() async {
-    final habits = ref.read(habitsProvider).value ?? const [];
-    final match = habits.where((h) => h.id.contains('breathing')).toList();
-    if (match.isEmpty) {
-      showSnack(context, 'Nice session. No breathing habit in your plan yet.');
-      return;
-    }
-    final habit = match.first;
-    if (habit.isDoneOn(DateTime.now())) {
-      showSnack(context, '"${habit.title}" is already done for today.');
-      return;
-    }
-    try {
-      await ref.read(habitsProvider.notifier).toggle(habit.id);
-      if (mounted) showSnack(context, 'Logged "${habit.title}" for today.');
-    } catch (_) {
-      if (mounted) showSnack(context, 'Could not log the habit. Try again.');
+    if (mounted) {
+      showSnack(context, 'Nice session. Add a habit from the Habits tab to track progress.');
     }
   }
 
@@ -109,26 +95,31 @@ class _BreathingScreenState extends ConsumerState<BreathingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('Breathing')),
-      body: SafeArea(
-        child: CenteredBody(
-          maxWidth: 560,
-          child: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              if (_phase == _Phase.idle) ..._idle(),
-              if (_phase == _Phase.running || _phase == _Phase.paused)
-                ..._session(),
-              if (_phase == _Phase.done) ..._done(),
-              const SizedBox(height: 24),
-              Text(
-                'Breathe gently. If you feel light-headed, return to normal '
-                'breathing and stop.',
-                style: AppText.caption,
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+      appBar: InkAppBar(
+        title: 'Breathing',
+        subtitle: '4s in · 6s out',
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+      ),
+      body: CenteredBody(
+        maxWidth: 560,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+          children: [
+            if (_phase == _Phase.idle) ..._idle(),
+            if (_phase == _Phase.running || _phase == _Phase.paused)
+              ..._session(),
+            if (_phase == _Phase.done) ..._done(),
+            const SizedBox(height: 24),
+            Text(
+              'Breathe gently. If you feel light-headed, return to normal '
+              'breathing and stop.',
+              style: AppText.caption,
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );
@@ -136,35 +127,54 @@ class _BreathingScreenState extends ConsumerState<BreathingScreen> {
 
   List<Widget> _idle() {
     return [
-      const SizedBox(height: 12),
-      Text('Take a calm minute', style: AppText.screenTitle),
-      const SizedBox(height: 8),
-      Text(
-        'Breathe in for $_inhaleSeconds seconds, out for $_exhaleSeconds. '
-        'Follow the circle.',
-        style: AppText.bodyMuted,
-      ),
-      const SizedBox(height: 24),
-      Center(child: _Circle(size: 150, label: 'Ready', animate: false, duration: Duration.zero)),
-      const SizedBox(height: 28),
-      Text('How long?', style: AppText.label),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 8,
-        children: [
-          for (final m in _choices)
-            AppChip(
-              label: '$m min',
-              selected: _minutes == m,
-              onTap: () => setState(() => _minutes = m),
+      SoftSurface(
+        color: AppColors.skyCard,
+        radius: 28,
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+        child: Column(
+          children: [
+            Text(
+              'Take a calm minute',
+              style: AppText.cardTitle.copyWith(fontSize: 20),
+              textAlign: TextAlign.center,
             ),
-        ],
-      ),
-      const SizedBox(height: 24),
-      PillButton(
-        label: 'Start $_minutes-minute session',
-        icon: Icons.play_arrow_rounded,
-        onPressed: _start,
+            const SizedBox(height: 6),
+            Text(
+              'Breathe in for $_inhaleSeconds seconds, out for $_exhaleSeconds. '
+              'Follow the circle.',
+              style: AppText.bodyMuted,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 22),
+            const _Circle(
+              size: 150,
+              label: 'Ready',
+              animate: false,
+              duration: Duration.zero,
+            ),
+            const SizedBox(height: 22),
+            Text('How long?', style: AppText.label),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                for (final m in _choices)
+                  AppChip(
+                    label: '$m min',
+                    selected: _minutes == m,
+                    onTap: () => setState(() => _minutes = m),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            PillButton(
+              label: 'Start $_minutes-minute session',
+              icon: Icons.play_arrow_rounded,
+              onPressed: _start,
+            ),
+          ],
+        ),
       ),
     ];
   }

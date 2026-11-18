@@ -5,8 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import '../../features/alerts/alert_preferences_screen.dart';
 import '../../features/alerts/alerts_screen.dart';
 import '../../features/alerts/emergency_screen.dart';
-import '../../features/auth/otp_screen.dart';
-import '../../features/auth/sign_in_screen.dart';
+import '../../features/auth/fs_sign_in_screen.dart';
+import '../../features/auth/fs_sign_up_screen.dart';
 import '../../features/connect/connect_watch_screen.dart';
 import '../../features/design_preview/design_preview_screen.dart';
 import '../../features/doctor/doctor_review_detail_screen.dart';
@@ -15,18 +15,20 @@ import '../../features/flags/flag_detail_screen.dart';
 import '../../features/flags/flags_screen.dart';
 import '../../features/habits/breathing_screen.dart';
 import '../../features/habits/habits_screen.dart';
-import '../../features/home/home_screen.dart';
-import '../../features/onboarding/consent_screen.dart';
-import '../../features/onboarding/intake_screen.dart';
-import '../../features/onboarding/onboarding_carousel_screen.dart';
+import '../../features/home/fs_home_screen.dart';
+import '../../features/onboarding/fs_consent_screen.dart';
+import '../../features/onboarding/fs_family_history_screen.dart';
+import '../../features/onboarding/fs_medical_profile_screen.dart';
+import '../../features/onboarding/fs_basic_profile_screen.dart';
 import '../../features/onboarding/splash_screen.dart';
+import '../../features/profile/fs_profile_screen.dart';
 import '../../features/profile/devices_screen.dart';
-import '../../features/profile/profile_screen.dart';
 import '../../features/reports/reports_screen.dart';
-import '../../features/settings/settings_screen.dart';
-import '../../features/symptoms/symptoms_screen.dart';
-import '../../features/timeline/timeline_screen.dart';
-import '../../providers/session_provider.dart';
+import '../../features/settings/fs_settings_screen.dart';
+import '../../features/symptoms/fs_symptoms_screen.dart';
+import '../../features/timeline/fs_timeline_screen.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/data_providers.dart';
 import '../routes.dart';
 import '../shell/adaptive_shell.dart';
 
@@ -53,30 +55,51 @@ CustomTransitionPage<void> _fadeSlide(GoRouterState state, Widget child) {
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final refresh = _SessionListenable(ref);
+  final refresh = _AuthListenable(ref);
 
   return GoRouter(
     navigatorKey: _rootKey,
     initialLocation: '/',
     refreshListenable: refresh,
     redirect: (context, state) {
-      final session = ref.read(sessionProvider);
+      final authAsync = ref.read(authStateProvider);
       final path = state.uri.path;
-      final onSplash = path == '/';
-      final onAuthFlow = path == '/onboarding' ||
-          path == '/sign-in' ||
-          path == '/otp' ||
-          path == '/consent' ||
-          path == '/intake' ||
-          path == '/connect';
 
-      if (!session.canEnterApp) {
+      // While auth is loading, stay on splash
+      if (authAsync.isLoading) {
+        if (path == '/') return null;
+        return '/';
+      }
+
+      final user = authAsync.value;
+      final signedIn = user != null;
+
+      final onSplash = path == '/';
+      final onAuthFlow = path == '/sign-in' ||
+          path == '/sign-up' ||
+          path.startsWith('/onboard');
+
+      if (!signedIn) {
         if (onSplash || onAuthFlow) return null;
-        if (!session.hasCompletedOnboarding) return '/onboarding';
-        if (!session.hasSignedIn) return '/sign-in';
-        if (!session.consentsAccepted) return '/consent';
-        if (!session.deviceConnected) return '/connect';
         return '/sign-in';
+      }
+
+      // Signed in — check onboarding (single cached user-doc provider)
+      final userProfile = ref.read(userProvider).value;
+      final isDemo = userProfile?.isDemo ?? false;
+      final onboardingComplete = userProfile?.onboardingComplete ?? false;
+
+      if (!isDemo && !onboardingComplete && userProfile != null) {
+        if (!userProfile.consent.healthData) {
+          if (path == '/onboard/consent') return null;
+          return '/onboard/consent';
+        }
+        if (userProfile.age == null) {
+          if (path == '/onboard/basic-profile') return null;
+          return '/onboard/basic-profile';
+        }
+        if (path.startsWith('/onboard/') || path == '/connect') return null;
+        return '/onboard/consent';
       }
 
       if (onSplash || onAuthFlow) return AppRoutes.home;
@@ -89,45 +112,46 @@ final routerProvider = Provider<GoRouter>((ref) {
           state,
           SplashScreen(
             onFinished: () {
-              final s = ref.read(sessionProvider);
-              if (s.canEnterApp) {
+              final auth = ref.read(authStateProvider);
+              if (auth.value != null) {
                 context.go(AppRoutes.home);
-              } else if (s.hasCompletedOnboarding) {
-                context.go('/sign-in');
               } else {
-                context.go('/onboarding');
+                context.go('/sign-in');
               }
             },
           ),
         ),
       ),
       GoRoute(
-        path: '/onboarding',
-        pageBuilder: (context, state) =>
-            _fadeSlide(state, const OnboardingCarouselScreen()),
-      ),
-      GoRoute(
         path: '/sign-in',
         pageBuilder: (context, state) =>
-            _fadeSlide(state, const SignInScreen()),
+            _fadeSlide(state, const FsSignInScreen()),
       ),
       GoRoute(
-        path: '/otp',
-        pageBuilder: (context, state) {
-          final destination =
-              state.extra is String ? state.extra as String : null;
-          return _fadeSlide(state, OtpScreen(destination: destination));
-        },
-      ),
-      GoRoute(
-        path: '/consent',
+        path: '/sign-up',
         pageBuilder: (context, state) =>
-            _fadeSlide(state, const ConsentScreen()),
+            _fadeSlide(state, const FsSignUpScreen()),
+      ),
+      // Onboarding steps
+      GoRoute(
+        path: '/onboard/consent',
+        pageBuilder: (context, state) =>
+            _fadeSlide(state, const FsConsentScreen()),
       ),
       GoRoute(
-        path: '/intake',
+        path: '/onboard/basic-profile',
         pageBuilder: (context, state) =>
-            _fadeSlide(state, const IntakeScreen()),
+            _fadeSlide(state, const FsBasicProfileScreen()),
+      ),
+      GoRoute(
+        path: '/onboard/medical-profile',
+        pageBuilder: (context, state) =>
+            _fadeSlide(state, const FsMedicalProfileScreen()),
+      ),
+      GoRoute(
+        path: '/onboard/family-history',
+        pageBuilder: (context, state) =>
+            _fadeSlide(state, const FsFamilyHistoryScreen()),
       ),
       GoRoute(
         path: '/connect',
@@ -160,7 +184,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.symptoms,
         parentNavigatorKey: _rootKey,
         pageBuilder: (context, state) =>
-            _fadeSlide(state, const SymptomsScreen()),
+            _fadeSlide(state, const FsSymptomsScreen()),
       ),
       GoRoute(
         path: AppRoutes.doctors,
@@ -173,10 +197,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             parentNavigatorKey: _rootKey,
             pageBuilder: (context, state) {
               final id = state.pathParameters['reviewId']!;
-              return _fadeSlide(
-                state,
-                DoctorReviewDetailScreen(reviewId: id),
-              );
+              return _fadeSlide(state, DoctorReviewDetailScreen(reviewId: id));
             },
           ),
         ],
@@ -191,7 +212,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.settings,
         parentNavigatorKey: _rootKey,
         pageBuilder: (context, state) =>
-            _fadeSlide(state, const SettingsScreen()),
+            _fadeSlide(state, const FsSettingsScreen()),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
@@ -203,7 +224,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.home,
                 pageBuilder: (context, state) =>
-                    _fadeSlide(state, const HomeScreen()),
+                    _fadeSlide(state, const FsHomeScreen()),
               ),
             ],
           ),
@@ -219,10 +240,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                     parentNavigatorKey: _rootKey,
                     pageBuilder: (context, state) {
                       final id = state.pathParameters['flagId']!;
-                      return _fadeSlide(
-                        state,
-                        FlagDetailScreen(flagId: id),
-                      );
+                      return _fadeSlide(state, FlagDetailScreen(flagId: id));
                     },
                   ),
                 ],
@@ -234,7 +252,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.timeline,
                 pageBuilder: (context, state) =>
-                    _fadeSlide(state, const TimelineScreen()),
+                    _fadeSlide(state, const FsTimelineScreen()),
               ),
             ],
           ),
@@ -260,7 +278,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.profile,
                 pageBuilder: (context, state) =>
-                    _fadeSlide(state, const ProfileScreen()),
+                    _fadeSlide(state, const FsProfileScreen()),
                 routes: [
                   GoRoute(
                     path: 'devices',
@@ -278,9 +296,10 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class _SessionListenable extends ChangeNotifier {
-  _SessionListenable(this._ref) {
-    _ref.listen<SessionState>(sessionProvider, (_, _) => notifyListeners());
+class _AuthListenable extends ChangeNotifier {
+  _AuthListenable(this._ref) {
+    _ref.listen(authStateProvider, (_, _) => notifyListeners());
+    _ref.listen(userProvider, (_, _) => notifyListeners());
   }
 
   final Ref _ref;

@@ -28,8 +28,9 @@
     <!-- Body measurements / temperature -->
     <uses-permission android:name="android.permission.health.READ_BODY_TEMPERATURE" />
     <uses-permission android:name="android.permission.health.READ_SKIN_TEMPERATURE" />
-    <!-- Historical data (> 30 days) -->
+    <!-- Historical data (> 30 days) + background read -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
     <application
         android:label="vitals"

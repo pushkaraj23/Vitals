@@ -4,6 +4,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:health/health.dart';
 
 import '../../providers/repository_providers.dart';
+import 'health_connect_repository.dart';
+import 'health_sync_service.dart';
+
+final healthConnectRepositoryProvider = Provider<HealthConnectRepository>(
+  (ref) => HealthConnectRepository(),
+);
+
+final healthSyncServiceProvider = Provider<HealthSyncService>((ref) {
+  return HealthSyncService(
+    health: ref.watch(healthConnectRepositoryProvider),
+    daily: ref.watch(dailyRepositoryProvider),
+    users: ref.watch(userRepositoryProvider),
+  );
+});
 
 /// Tracks the current Health Connect authorisation state.
 enum HcAuthState {

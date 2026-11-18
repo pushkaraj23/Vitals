@@ -153,7 +153,7 @@ class SimulatedReviewLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      'Simulated review (demo)',
+      'Simulated review',
       style: AppText.caption.copyWith(fontStyle: FontStyle.italic),
     );
   }

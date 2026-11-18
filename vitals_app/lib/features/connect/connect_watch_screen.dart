@@ -6,8 +6,10 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/pill_button.dart';
 import '../../core/widgets/soft_surface.dart';
+import '../../data/auth_service.dart';
 import '../../data/health_connect/health_connect_auth_notifier.dart';
-import '../../providers/session_provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/data_providers.dart';
 import '../onboarding/onboarding_parts.dart';
 
 const int kBackfillDays = 180;
@@ -102,8 +104,11 @@ class _ConnectWatchScreenState extends ConsumerState<ConnectWatchScreen> {
     );
 
     if (finished == true && mounted) {
-      ref.read(sessionProvider.notifier).connectDevice();
-      context.go('/home');
+      final uid = ref.read(currentUidProvider);
+      if (uid != null) {
+        await AuthService().completeOnboarding(uid);
+      }
+      if (mounted) context.go('/home');
     }
   }
 
@@ -331,30 +336,53 @@ class _DemoNote extends StatelessWidget {
   }
 }
 
-class _BackfillSheet extends StatefulWidget {
+class _BackfillSheet extends ConsumerStatefulWidget {
   const _BackfillSheet();
 
   @override
-  State<_BackfillSheet> createState() => _BackfillSheetState();
+  ConsumerState<_BackfillSheet> createState() => _BackfillSheetState();
 }
 
-class _BackfillSheetState extends State<_BackfillSheet>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+class _BackfillSheetState extends ConsumerState<_BackfillSheet> {
+  bool _running = true;
+  bool _done = false;
+  String? _error;
+  int _daysWritten = 0;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 4200),
-    )..forward();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _run());
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Future<void> _run() async {
+    final uid = ref.read(currentUidProvider);
+    if (uid == null) {
+      setState(() {
+        _running = false;
+        _error = 'Not signed in.';
+      });
+      return;
+    }
+    try {
+      final result = await ref
+          .read(healthSyncServiceProvider)
+          .syncUser(uid, backfill: true);
+      ref.invalidate(dailyProvider(null));
+      ref.invalidate(userProvider);
+      if (!mounted) return;
+      setState(() {
+        _running = false;
+        _done = true;
+        _daysWritten = result.daysWritten;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _running = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
   }
 
   @override
@@ -369,86 +397,105 @@ class _BackfillSheetState extends State<_BackfillSheet>
             kScreenPadding,
             kScreenPadding,
           ),
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, _) {
-              final t = Curves.easeInOut.transform(_controller.value);
-              final days = (t * kBackfillDays).round();
-              final done = _controller.isCompleted;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.line,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: done
-                              ? AppColors.flagGreenBg
-                              : AppColors.skyCard,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(
-                          done
-                              ? Icons.check_rounded
-                              : Icons.cloud_download_outlined,
-                          color: done ? AppColors.flagGreen : AppColors.ink,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          done ? 'History imported' : 'Connected to Health Connect',
-                          style: AppText.sectionTitle,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    'Importing your history: $days of $kBackfillDays days',
-                    style: AppText.cardTitle,
-                  ),
-                  const SizedBox(height: 12),
-                  ClipRRect(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.line,
                     borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: days / kBackfillDays,
-                      minHeight: 10,
-                      backgroundColor: AppColors.line,
-                      color: done ? AppColors.flagGreen : AppColors.ink,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _done
+                          ? AppColors.flagGreenBg
+                          : (_error != null
+                              ? AppColors.flagRedBg
+                              : AppColors.skyCard),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      _done
+                          ? Icons.check_rounded
+                          : (_error != null
+                              ? Icons.error_outline_rounded
+                              : Icons.cloud_download_outlined),
+                      color: _done
+                          ? AppColors.flagGreen
+                          : (_error != null
+                              ? AppColors.flagRed
+                              : AppColors.ink),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    done
-                        ? 'Your baseline is ready.'
-                        : 'Building your personal baseline. This only takes a moment.',
-                    style: AppText.bodyMuted,
-                  ),
-                  const SizedBox(height: 20),
-                  PillButton(
-                    label: 'Open my dashboard',
-                    icon: Icons.arrow_forward_rounded,
-                    onPressed:
-                        done ? () => Navigator.of(context).pop(true) : null,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _done
+                          ? 'History imported'
+                          : (_error != null
+                              ? 'Import issue'
+                              : 'Connected to Health Connect'),
+                      style: AppText.sectionTitle,
+                    ),
                   ),
                 ],
-              );
-            },
+              ),
+              const SizedBox(height: 18),
+              Text(
+                _done
+                    ? 'Imported $_daysWritten day(s) into your account'
+                    : (_error ??
+                        'Importing up to $kBackfillDays days from Health Connect…'),
+                style: AppText.cardTitle,
+              ),
+              const SizedBox(height: 12),
+              if (_running)
+                const LinearProgressIndicator(
+                  minHeight: 10,
+                  backgroundColor: AppColors.line,
+                  color: AppColors.ink,
+                )
+              else
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: 1,
+                    minHeight: 10,
+                    backgroundColor: AppColors.line,
+                    color: _error != null
+                        ? AppColors.flagAmber
+                        : AppColors.flagGreen,
+                  ),
+                ),
+              const SizedBox(height: 10),
+              Text(
+                _done
+                    ? 'Your vitals are ready on the dashboard.'
+                    : (_error != null
+                        ? 'You can retry sync later from Home → Sync now.'
+                        : 'Building your personal baseline from watch history.'),
+                style: AppText.bodyMuted,
+              ),
+              const SizedBox(height: 20),
+              PillButton(
+                label: _error != null ? 'Continue anyway' : 'Open my dashboard',
+                icon: Icons.arrow_forward_rounded,
+                onPressed: _running
+                    ? null
+                    : () => Navigator.of(context).pop(true),
+              ),
+            ],
           ),
         ),
       ),

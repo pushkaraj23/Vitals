@@ -1,16 +1,20 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
+import '../../core/utils/metric_labels.dart';
+import '../../core/widgets/ink_app_bar.dart';
 import '../../core/widgets/option_sheet.dart';
 import '../../core/widgets/widgets.dart';
+import '../../data/repositories/flag_repository.dart';
 import '../../domain/models/enums.dart';
-import '../../domain/models/flag.dart';
-import '../../providers/providers.dart';
+import '../../providers/chart_providers.dart';
+import '../../providers/data_providers.dart';
 import 'flag_tile.dart';
 
-/// All flags, grouped by status, with status/domain filters and search.
+/// All health flags with status/metric filters and search.
 class FlagsScreen extends ConsumerStatefulWidget {
   const FlagsScreen({super.key});
 
@@ -21,8 +25,16 @@ class FlagsScreen extends ConsumerStatefulWidget {
 class _FlagsScreenState extends ConsumerState<FlagsScreen> {
   final _searchController = TextEditingController();
   FlagStatus? _status;
-  HealthDomain? _domain;
+  String? _metric;
   String _query = '';
+
+  static const _metrics = [
+    'restingHr',
+    'hrv',
+    'sleepDeep',
+    'spo2',
+    'steps',
+  ];
 
   @override
   void dispose() {
@@ -30,124 +42,122 @@ class _FlagsScreenState extends ConsumerState<FlagsScreen> {
     super.dispose();
   }
 
-  Future<void> _refresh() async {
-    ref.invalidate(flagsProvider);
-    try {
-      await ref.read(flagsProvider.future);
-    } catch (_) {
-      // The error state is rendered from the provider itself.
-    }
-  }
-
-  Future<void> _pickDomain() async {
+  Future<void> _pickMetric() async {
     const all = 'all';
     final result = await showOptionSheet<Object>(
       context,
-      title: 'Filter by area',
-      selected: _domain ?? all,
+      title: 'Filter by metric',
+      selected: _metric ?? all,
       options: [
-        const SheetOption<Object>(all, 'All areas'),
-        for (final d in HealthDomain.values)
-          SheetOption<Object>(d, d.label, icon: d.icon),
+        const SheetOption<Object>(all, 'All metrics'),
+        for (final m in _metrics)
+          SheetOption<Object>(
+            m,
+            MetricLabels.label(m),
+            icon: MetricLabels.icon(m),
+          ),
       ],
     );
-    // `null` means the sheet was dismissed without a choice.
     if (!mounted || result == null) return;
-    setState(() => _domain = result is HealthDomain ? result : null);
+    setState(() => _metric = result is String && result != all ? result : null);
   }
 
   void _clearFilters() {
     _searchController.clear();
     setState(() {
       _status = null;
-      _domain = null;
+      _metric = null;
       _query = '';
     });
   }
 
-  List<Flag> _applyFilters(List<Flag> all) {
+  List<FlagModel> _applyFilters(List<FlagModel> all) {
     final q = _query.trim().toLowerCase();
     return all.where((f) {
-      if (_status != null && f.status != _status) return false;
-      if (_domain != null && f.domain != _domain) return false;
+      if (_status != null &&
+          MetricLabels.statusFromLevel(f.level) != _status) {
+        return false;
+      }
+      if (_metric != null && f.metric != _metric) return false;
       if (q.isEmpty) return true;
       return f.title.toLowerCase().contains(q) ||
-          f.summary.toLowerCase().contains(q) ||
-          f.metric.label.toLowerCase().contains(q) ||
-          f.domain.label.toLowerCase().contains(q);
+          f.explanation.toLowerCase().contains(q) ||
+          MetricLabels.label(f.metric).toLowerCase().contains(q);
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final flagsAsync = ref.watch(flagsProvider);
+    final seriesMap = ref.watch(homeMetricSeriesProvider);
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 820),
-            child: flagsAsync.when(
-              loading: () => const _FlagsSkeleton(),
-              error: (error, _) => ErrorState(
-                message: 'We could not load your flags. Check your connection and try again.',
-                onRetry: () => ref.invalidate(flagsProvider),
-              ),
-              data: _buildData,
-            ),
-          ),
+      backgroundColor: AppColors.canvas,
+      appBar: InkAppBar(
+        title: 'Health Flags',
+        subtitle: 'From your personal baseline',
+      ),
+      body: flagsAsync.when(
+        loading: () => const _FlagsSkeleton(),
+        error: (error, _) => ErrorState(
+          message:
+              'We could not load your flags. Check your connection and try again.',
+          onRetry: () => ref.invalidate(flagsProvider),
         ),
+        data: (all) => _buildData(all, seriesMap),
       ),
     );
   }
 
-  Widget _buildData(List<Flag> all) {
+  Widget _buildData(
+    List<FlagModel> all,
+    Map<String, MetricSeries> seriesMap,
+  ) {
     final filtered = _applyFilters(all);
-    final counts = <FlagStatus, int>{
-      for (final s in FlagStatus.values)
-        s: all.where((f) => f.status == s).length,
-    };
-    final hasFilters = _status != null || _domain != null || _query.isNotEmpty;
+    final hasFilters =
+        _status != null || _metric != null || _query.trim().isNotEmpty;
 
-    final groups = <FlagStatus>[
-      FlagStatus.red,
-      FlagStatus.amber,
-      FlagStatus.green,
-    ];
+    if (all.isEmpty) {
+      return const EmptyState(
+        icon: Icons.watch_outlined,
+        title: 'No health flags yet',
+        message: 'Connect your watch to start building your baseline',
+      );
+    }
 
     return RefreshIndicator(
-      onRefresh: _refresh,
+      onRefresh: () async {
+        ref.invalidate(flagsProvider);
+        await ref.read(flagsProvider.future);
+      },
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
         children: [
-          Text('Flags', style: AppText.screenTitle),
-          const SizedBox(height: 4),
-          Text(
-            all.isEmpty
-                ? 'Patterns in your data will appear here.'
-                : '${counts[FlagStatus.red]! + counts[FlagStatus.amber]!} to keep an eye on · ${counts[FlagStatus.green]} in your usual range',
-            style: AppText.bodyMuted,
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _searchController,
-            onChanged: (v) => setState(() => _query = v),
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              hintText: 'Search flags',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _query = '');
-                      },
-                    ),
+          SoftSurface(
+            radius: 20,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _query = v),
+              decoration: InputDecoration(
+                hintText: 'Search flags',
+                prefixIcon: const Icon(Icons.search_rounded),
+                filled: true,
+                fillColor: AppColors.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -155,151 +165,114 @@ class _FlagsScreenState extends ConsumerState<FlagsScreen> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _StatusChip(
-                  label: 'All ${all.length}',
-                  selected: _status == null,
-                  onTap: () => setState(() => _status = null),
-                ),
-                const SizedBox(width: 8),
-                for (final s in [
-                  FlagStatus.red,
-                  FlagStatus.amber,
-                  FlagStatus.green,
-                ]) ...[
-                  _StatusChip(
-                    label: '${_shortLabel(s)} ${counts[s]}',
+                for (final s in FlagStatus.values) ...[
+                  _FilterPill(
+                    label: s.label,
                     selected: _status == s,
-                    dotColor: s.color,
-                    onTap: () => setState(() => _status = s),
+                    selectedColor: s.color,
+                    selectedBg: s.background,
+                    onTap: () => setState(
+                      () => _status = _status == s ? null : s,
+                    ),
                   ),
                   const SizedBox(width: 8),
                 ],
-                PillDropdown(
-                  label: _domain?.label ?? 'All areas',
-                  onTap: _pickDomain,
+                _FilterPill(
+                  label: _metric == null
+                      ? 'Metric'
+                      : MetricLabels.label(_metric!),
+                  selected: _metric != null,
+                  icon: Icons.tune_rounded,
+                  onTap: _pickMetric,
                 ),
+                if (hasFilters) ...[
+                  const SizedBox(width: 8),
+                  _FilterPill(
+                    label: 'Clear',
+                    selected: false,
+                    onTap: _clearFilters,
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          if (all.isEmpty)
+          const SizedBox(height: 16),
+          if (filtered.isEmpty)
             const Padding(
-              padding: EdgeInsets.only(top: 32),
+              padding: EdgeInsets.symmetric(vertical: 48),
               child: EmptyState(
-                title: 'No flags yet',
-                message:
-                    'Once your wearable has a few days of data, patterns that '
-                    'differ from your usual range will show up here.',
-                icon: Icons.flag_outlined,
-              ),
-            )
-          else if (filtered.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 32),
-              child: EmptyState(
-                title: 'No flags match',
-                message: hasFilters
-                    ? 'Try a different filter or search term.'
-                    : 'Nothing to show right now.',
                 icon: Icons.filter_alt_off_rounded,
-                actionLabel: hasFilters ? 'Clear filters' : null,
-                onAction: hasFilters ? _clearFilters : null,
+                title: 'No matches',
+                message: 'Try clearing filters or search.',
               ),
             )
           else
-            for (final status in groups) ..._buildGroup(status, filtered),
+            for (final f in filtered) ...[
+              FlagTile(flag: f, spark: seriesMap[f.metric]),
+              const SizedBox(height: 12),
+            ],
+          const SizedBox(height: 8),
+          Text(
+            'VitalWatch provides wellness insights, not medical diagnoses.',
+            style: AppText.caption,
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
   }
-
-  List<Widget> _buildGroup(FlagStatus status, List<Flag> filtered) {
-    final items = filtered.where((f) => f.status == status).toList()
-      ..sort((a, b) {
-        final bySeverity = b.severity.index.compareTo(a.severity.index);
-        if (bySeverity != 0) return bySeverity;
-        return b.streakDays.compareTo(a.streakDays);
-      });
-    if (items.isEmpty) return const [];
-    return [
-      Padding(
-        padding: const EdgeInsets.only(bottom: 10, top: 4),
-        child: Row(
-          children: [
-            Icon(status.icon, size: 18, color: status.color),
-            const SizedBox(width: 8),
-            Text('${status.label} · ${items.length}', style: AppText.cardTitle),
-          ],
-        ),
-      ),
-      for (final flag in items)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: FlagTile(flag: flag),
-        ),
-      const SizedBox(height: 8),
-    ];
-  }
-
-  static String _shortLabel(FlagStatus s) => switch (s) {
-    FlagStatus.red => 'Red',
-    FlagStatus.amber => 'Amber',
-    FlagStatus.green => 'Green',
-  };
 }
 
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
+class _FilterPill extends StatelessWidget {
+  const _FilterPill({
     required this.label,
     required this.selected,
     required this.onTap,
-    this.dotColor,
+    this.icon,
+    this.selectedColor,
+    this.selectedBg,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final Color? dotColor;
+  final IconData? icon;
+  final Color? selectedColor;
+  final Color? selectedBg;
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: '$label filter',
-      child: Material(
-        color: selected ? AppColors.ink : AppColors.surface,
-        shape: StadiumBorder(
-          side: BorderSide(color: selected ? AppColors.ink : AppColors.line),
-        ),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (dotColor != null) ...[
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: dotColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Text(
-                  label,
-                  style: AppText.caption.copyWith(
-                    color: selected ? AppColors.surface : AppColors.ink,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+    final bg = selected
+        ? (selectedBg ?? AppColors.ink)
+        : AppColors.surface;
+    final fg = selected
+        ? (selectedColor ?? Colors.white)
+        : AppColors.inkSoft;
+
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 16, color: fg),
+                const SizedBox(width: 6),
               ],
-            ),
+              Text(
+                label,
+                style: GoogleFonts.manrope(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: fg,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -313,20 +286,10 @@ class _FlagsSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(20),
       children: const [
-        ShimmerLikeSkeleton(height: 32, width: 120),
-        SizedBox(height: 16),
-        ShimmerLikeSkeleton(height: 52, radius: 16),
         SizedBox(height: 12),
-        ShimmerLikeSkeleton(height: 40, radius: 20),
-        SizedBox(height: 24),
-        ShimmerLikeSkeleton(height: 120, radius: 24),
-        SizedBox(height: 12),
-        ShimmerLikeSkeleton(height: 120, radius: 24),
-        SizedBox(height: 12),
-        ShimmerLikeSkeleton(height: 120, radius: 24),
+        ListSkeleton(blocks: 4),
       ],
     );
   }

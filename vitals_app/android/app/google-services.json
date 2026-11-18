@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "653200762538",
+    "project_id": "vitals-fbebc",
+    "storage_bucket": "vitals-fbebc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:653200762538:android:19ab5b1da665459489d2d3",
+        "android_client_info": {
+          "package_name": "com.example.vitals"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGUJ6lCfwNbKngegS9pTYE43vIYYNfjtc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
